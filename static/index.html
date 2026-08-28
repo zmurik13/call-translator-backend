@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Voice Translator</title>
+    <!-- Подключаем наш внешний CSS -->
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+    <div class="header">
+        <h2>AI Translator</h2>
+        <div id="status">Зажмите кнопку для перевода</div>
+    </div>
+    
+    <div class="container">
+        <button id="btnRu" class="btn">
+            🇷🇺 RU ➔ LT
+            <span>Зажать и говорить</span>
+        </button>
+        
+        <button id="btnLt" class="btn">
+            🇱🇹 LT ➔ RU
+            <span>Зажать и говорить</span>
+        </button>
+    </div>
+
+    <div class="text-box">
+        <strong><span class="dot-ru">●</span> Распознано:</strong>
+        <div id="recognized">...</div>
+    </div>
+    
+    <div class="text-box">
+        <strong><span class="dot-lt">●</span> Перевод:</strong>
+        <div id="translated">...</div>
+    </div>
+
+    <!-- Подключаем наш внешний JS -->
+    <script src="/static/app.js"></script>
+</body>
+</html>
