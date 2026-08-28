@@ -10,6 +10,8 @@ from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse, Pla
 from fastapi.staticfiles import StaticFiles
 from groq import AsyncGroq
 import edge_tts
+import threading
+from sip_agent import start_sip_client
 
 # =====================================================================
 # LOGGING CONFIGURATION
@@ -81,30 +83,36 @@ SHUTDOWN_MESSAGES = [
     "Я не говорю прощай, я говорю 'до нового билда'. 🫡"
 ]
 
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Fetch the commit hash once when the app starts
     commit_hash = os.environ.get("RENDER_GIT_COMMIT", "unknown")[:7]
-    
+
     # Pick a random funny message for startup
     startup_joke = random.choice(STARTUP_MESSAGES)
-    
+
+    # Запускаем SIP-клиента в фоновом потоке ДО старта веб-сервера
+    sip_thread = threading.Thread(target=start_sip_client, daemon=True)
+    sip_thread.start()
+    print("📞 [MAIN] Background SIP Agent thread started!", flush=True)
+
     # Triggered on application startup
     await send_discord_alert(
-        "🟢 SYSTEM ONLINE", 
-        f"**Build:** `{commit_hash}`\n_{startup_joke}_", 
+        "🟢 SYSTEM ONLINE",
+        f"**Build:** `{commit_hash}`\n_{startup_joke}_",
         3066993
     )
-    
+
     yield
-    
+
     # Pick a random funny message for shutdown
     shutdown_joke = random.choice(SHUTDOWN_MESSAGES)
-    
+
     # Triggered on graceful application shutdown
     await send_discord_alert(
-        "🔴 SYSTEM OFFLINE", 
-        f"**Build:** `{commit_hash}`\n_{shutdown_joke}_", 
+        "🔴 SYSTEM OFFLINE",
+        f"**Build:** `{commit_hash}`\n_{shutdown_joke}_",
         15158332
     )
 
@@ -325,3 +333,7 @@ async def process_voice_translation(
 async def serve_interface():
     """Serve the static HTML interface."""
     return FileResponse("static/index.html")
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="127.0.0.1", port=8000)
