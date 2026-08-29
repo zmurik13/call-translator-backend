@@ -1,7 +1,6 @@
 import os
 import time
 import wave
-import audioop  # <-- Наш декодер сырого SIP-аудио
 from dotenv import load_dotenv
 from pyVoIP.VoIP import VoIPPhone, InvalidStateError, CallState
 
@@ -25,25 +24,22 @@ def answer_call(call):
         start_time = time.time()
 
         while time.time() - start_time < 7.0:
-            # Защита от зависания: если собеседник повесил трубку
             if call.state != CallState.ANSWERED:
                 print("🛑 [SIP] Собеседник повесил трубку!", flush=True)
                 break
 
-            # Читаем сырой звук (320 байт = 20мс)
+            # Читаем звук (теперь мы знаем, что это 8-битный чистый PCM)
             chunk = call.read_audio(320)
             if chunk:
-                # Жестко декодируем европейский стандарт a-law (PCMA) в 16-bit PCM
-                decoded_chunk = audioop.alaw2lin(chunk, 2)
-                audio_frames.extend(decoded_chunk)
+                audio_frames.extend(chunk)
 
         print("💾 [SIP] Время вышло (или звонок окончен), сохраняем...", flush=True)
 
         if len(audio_frames) > 0:
             with wave.open("/opt/translator/test_record.wav", "wb") as wf:
                 wf.setnchannels(1)       # Моно
-                wf.setsampwidth(2)       # 16-bit (т.к. audioop декодировал с параметром 2)
-                wf.setframerate(8000)    # Стандартные 8000 Hz для SIP
+                wf.setsampwidth(1)       # ВОТ ОНА, РАЗГАДКА! 8-bit (1 байт на сэмпл)
+                wf.setframerate(8000)    # Стандарт 8000 Hz
                 wf.writeframes(audio_frames)
             print("☎️ [SIP] Файл test_record.wav успешно создан!", flush=True)
         else:
@@ -64,7 +60,6 @@ def start_sip_client():
 
     print(f"📡 [SIP] Подключаемся к {SIP_SERVER} как {SIP_USER}...", flush=True)
 
-    # ВАЖНО: Добавляем myIP="2.24.131.171" для маршрутизации RTP-аудио через NAT Hostinger'а
     phone = VoIPPhone(
         SIP_SERVER, 
         5060, 
