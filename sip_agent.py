@@ -1,80 +1,43 @@
 import os
-import time
-from dotenv import load_dotenv
-from pyVoIP.VoIP import VoIPPhone, InvalidStateError, CallState
+import speech_recognition as sr
+from fastapi import FastAPI
+import uvicorn
 
-load_dotenv()
+app = FastAPI()
 
-SIP_SERVER = os.getenv("ZADARMA_SIP_DOMAIN")
-SIP_USER = os.getenv("ZADARMA_SIP_USER")
-SIP_PASSWORD = os.getenv("ZADARMA_SIP_PASSWORD")
+@app.post("/api/recognize")
+async def recognize_audio():
+    wav_path = "/opt/translator/test_record.wav"
+    txt_path = "/opt/translator/test_record.txt"
 
+    print("\n🧠 [AI] Signal received from Asterisk! Starting transcription...", flush=True)
+    
+    if not os.path.exists(wav_path):
+        print(f"❌ [AI] Error: {wav_path} not found!", flush=True)
+        return {"status": "error", "message": "File not found"}
 
-def answer_call(call):
-    caller_number = call.request.headers.get('From', {}).get('number', 'Unknown')
-    print(f"\n📞 [SIP] Incoming call from: {caller_number}", flush=True)
-
+    recognizer = sr.Recognizer()
     try:
-        call.answer()
-        time.sleep(0.5)
-        print("✅ [SIP] Call answered! Speak now (recording for 7 seconds)...", flush=True)
-
-        audio_frames = bytearray()
-        start_time = time.time()
-
-        while time.time() - start_time < 7.0:
-            if call.state != CallState.ANSWERED:
-                print("🛑 [SIP] Caller hung up!", flush=True)
-                break
-
-            # Читаем сырые байты прямо из RTP-потока
-            chunk = call.read_audio(320)
-            if chunk:
-                audio_frames.extend(chunk)
-
-        print("💾 [SIP] Time is up. Saving RAW dump...", flush=True)
-
-        if len(audio_frames) > 0:
-            # Сохраняем как есть, без заголовков и метаданных
-            with open("/opt/translator/test_record.raw", "wb") as f:
-                f.write(audio_frames)
-            print("☎️ [SIP] RAW file test_record.raw successfully created!", flush=True)
-        else:
-            print("⚠️ [SIP] No audio received.", flush=True)
-
-        call.hangup()
-
-    except InvalidStateError as e:
-        print(f"⚠️ [SIP] Invalid call state error: {e}", flush=True)
+        # Read the perfectly clean audio recorded by Asterisk
+        with sr.AudioFile(wav_path) as source:
+            audio_data = recognizer.record(source)
+            
+        text = recognizer.recognize_google(audio_data, language="ru-RU")
+        print(f"📝 [STT] Recognized: {text}", flush=True)
+        
+        # Save the result
+        with open(txt_path, "w", encoding="utf-8") as f:
+            f.write(text)
+            
+        return {"status": "success", "text": text}
+        
+    except sr.UnknownValueError:
+        print("⚠️ [STT] Speech not recognized (silence or mumbled).", flush=True)
+        return {"status": "error", "message": "Speech not recognized"}
     except Exception as e:
-        print(f"❌ [SIP] Unexpected error: {e}", flush=True)
-
-
-def start_sip_client():
-    if not all([SIP_SERVER, SIP_USER, SIP_PASSWORD]):
-        print("🚨 [FATAL] SIP credentials not found!", flush=True)
-        return
-
-    phone = VoIPPhone(
-        SIP_SERVER, 
-        5060, 
-        SIP_USER, 
-        SIP_PASSWORD, 
-        myIP="2.24.131.171", 
-        callCallback=answer_call
-    )
-
-    try:
-        phone.start()
-        print("🚀 [SIP] Agent started, waiting for calls!", flush=True)
-        while True:
-            time.sleep(1)
-    except Exception as e:
-        print(f"❌ [SIP] Connection error: {e}", flush=True)
-    finally:
-        phone.stop()
-        print("🛑 [SIP] Agent stopped.", flush=True)
-
+        print(f"❌ [STT] API Error: {e}", flush=True)
+        return {"status": "error", "message": str(e)}
 
 if __name__ == "__main__":
-    start_sip_client()
+    # Start the local AI brain server
+    uvicorn.run(app, host="127.0.0.1", port=8000)
