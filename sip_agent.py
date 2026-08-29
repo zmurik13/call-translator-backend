@@ -1,5 +1,6 @@
 import os
 import time
+import wave
 from dotenv import load_dotenv
 from pyVoIP.VoIP import VoIPPhone, InvalidStateError
 
@@ -12,31 +13,43 @@ SIP_PASSWORD = os.getenv("ZADARMA_SIP_PASSWORD")
 
 
 def answer_call(call):
-	"""
-	Эта функция автоматически вызывается библиотекой pyVoIP,
-	когда на наш номер поступает входящий звонок.
-	"""
-	caller_number = call.request.headers.get('From', {}).get('number', 'Unknown')
-	print(f"\n📞 [SIP] Входящий звонок от: {caller_number}")
+    """
+    Отвечает на звонок и записывает 7 секунд аудио в test_record.wav
+    """
+    caller_number = call.request.headers.get('From', {}).get('number', 'Unknown')
+    print(f"\n📞 [SIP] Входящий звонок от: {caller_number}")
 
-	try:
-		# Снимаем трубку
-		call.answer()
-		print("✅ [SIP] Трубка снята!")
+    try:
+        call.answer()
+        print("✅ [SIP] Трубка снята! Говори в телефон (идет запись 7 секунд)...")
 
-		# Здесь в будущем мы будем передавать звук из Groq/Edge-TTS.
-		# А пока просто "молчим" в трубку 5 секунд.
-		print("⏳ [SIP] Держим линию 5 секунд...")
-		time.sleep(5)
+        audio_frames = bytearray()
+        start_time = time.time()
 
-		# Кладем трубку
-		call.hangup()
-		print("☎️ [SIP] Звонок успешно завершен.")
+        # Цикл: читаем звук из линии ровно 7 секунд
+        while time.time() - start_time < 7.0:
+            # Читаем кусочки аудио.
+            # 320 байт = 20 миллисекунд звука (формат PCM, 16-bit, 8000 Hz)
+            chunk = call.read_audio(320)
+            if chunk:
+                audio_frames.extend(chunk)
 
-	except InvalidStateError as e:
-		print(f"⚠️ [SIP] Ошибка состояния звонка: {e}")
-	except Exception as e:
-		print(f"❌ [SIP] Непредвиденная ошибка: {e}")
+        print("💾 [SIP] Время вышло, сохраняем звук в файл...")
+
+        # Сохраняем собранные байты в стандартный WAV-файл
+        with wave.open("test_record.wav", "wb") as wf:
+            wf.setnchannels(1)       # Моно
+            wf.setsampwidth(2)       # 16-bit (2 байта на сэмпл)
+            wf.setframerate(8000)    # 8000 Hz (стандарт качества SIP)
+            wf.writeframes(audio_frames)
+
+        call.hangup()
+        print("☎️ [SIP] Звонок завершен. Файл test_record.wav успешно создан!")
+
+    except InvalidStateError as e:
+        print(f"⚠️ [SIP] Ошибка состояния звонка: {e}")
+    except Exception as e:
+        print(f"❌ [SIP] Непредвиденная ошибка: {e}")
 
 
 def start_sip_client():
