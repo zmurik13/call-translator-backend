@@ -1,11 +1,8 @@
 import os
 import time
-import wave
-import audioop
 from dotenv import load_dotenv
 from pyVoIP.VoIP import VoIPPhone, InvalidStateError, CallState
 
-# Load environment variables
 load_dotenv()
 
 SIP_SERVER = os.getenv("ZADARMA_SIP_DOMAIN")
@@ -19,10 +16,7 @@ def answer_call(call):
 
     try:
         call.answer()
-        
-        # Give the SIP RTP channel 0.5 seconds to fully establish audio routing
         time.sleep(0.5)
-        
         print("✅ [SIP] Call answered! Speak now (recording for 7 seconds)...", flush=True)
 
         audio_frames = bytearray()
@@ -33,34 +27,20 @@ def answer_call(call):
                 print("🛑 [SIP] Caller hung up!", flush=True)
                 break
 
-            # Read raw audio chunk provided by pyVoIP
+            # Читаем сырые байты прямо из RTP-потока
             chunk = call.read_audio(320)
             if chunk:
                 audio_frames.extend(chunk)
 
-        print("💾 [SIP] Time is up. Saving test WAV files...", flush=True)
+        print("💾 [SIP] Time is up. Saving RAW dump...", flush=True)
 
         if len(audio_frames) > 0:
-            # 1. Normal 16-bit PCM (Assuming pyVoIP decodes to Little-Endian PCM)
-            with wave.open("/opt/translator/test_record_normal.wav", "wb") as wf:
-                wf.setnchannels(1)       
-                wf.setsampwidth(2)       
-                wf.setframerate(8000)    
-                wf.writeframes(audio_frames)
-                
-            # 2. Swapped bytes (in case of Big-Endian mismatch on Linux)
-            swapped_frames = audioop.byteswap(bytes(audio_frames), 2)
-            with wave.open("/opt/translator/test_record_swapped.wav", "wb") as wf:
-                wf.setnchannels(1)       
-                wf.setsampwidth(2)       
-                wf.setframerate(8000)    
-                wf.writeframes(swapped_frames)
-
-            print("☎️ [SIP] Created two files: normal.wav and swapped.wav.", flush=True)
-            print("🔍 [DEBUG] STT is temporarily disabled for audio testing.", flush=True)
-
+            # Сохраняем как есть, без заголовков и метаданных
+            with open("/opt/translator/test_record.raw", "wb") as f:
+                f.write(audio_frames)
+            print("☎️ [SIP] RAW file test_record.raw successfully created!", flush=True)
         else:
-            print("⚠️ [SIP] No audio received (RTP buffer empty).", flush=True)
+            print("⚠️ [SIP] No audio received.", flush=True)
 
         call.hangup()
 
@@ -72,10 +52,8 @@ def answer_call(call):
 
 def start_sip_client():
     if not all([SIP_SERVER, SIP_USER, SIP_PASSWORD]):
-        print("🚨 [FATAL] SIP credentials not found in .env!", flush=True)
+        print("🚨 [FATAL] SIP credentials not found!", flush=True)
         return
-
-    print(f"📡 [SIP] Connecting to {SIP_SERVER} as {SIP_USER}...", flush=True)
 
     phone = VoIPPhone(
         SIP_SERVER, 
@@ -88,7 +66,7 @@ def start_sip_client():
 
     try:
         phone.start()
-        print("🚀 [SIP] Agent successfully started and waiting for calls!", flush=True)
+        print("🚀 [SIP] Agent started, waiting for calls!", flush=True)
         while True:
             time.sleep(1)
     except Exception as e:
