@@ -18,11 +18,6 @@ def answer_call(call):
     caller_number = call.request.headers.get('From', {}).get('number', 'Unknown')
     print(f"\n📞 [SIP] Incoming call from: {caller_number}", flush=True)
 
-    # 🕵️‍♀️ ШПИОНСКИЙ БЛОК: Смотрим, какие кодеки предлагает Zadarma
-    print("\n--- 🕵️‍♀️ [SIP SDP] НАЧАЛО ПЕРЕГОВОРОВ О КОДЕКАХ ---", flush=True)
-    print(call.request.body, flush=True)
-    print("--- 🕵️‍♀️ [SIP SDP] КОНЕЦ ПЕРЕГОВОРОВ ---\n", flush=True)
-
     try:
         call.answer()
         
@@ -41,8 +36,8 @@ def answer_call(call):
 
             chunk = call.read_audio(320)
             if chunk:
-                # ВОТ ОНО! Распаковываем сырой европейский A-Law в линейный 16-bit PCM
-                pcm_chunk = audioop.alaw2lin(chunk, 2)
+                # ВОТ ОНО! Меняем alaw2lin на ulaw2lin (распаковываем американский кодек)
+                pcm_chunk = audioop.ulaw2lin(chunk, 2)
                 audio_frames.extend(pcm_chunk)
 
         print("💾 [SIP] Time is up. Saving WAV...", flush=True)
@@ -65,11 +60,11 @@ def answer_call(call):
             
             try:
                 with sr.AudioFile(wav_path) as source:
-                    # Calibrate noise floor to ignore SIP connection clicks (first 0.5s)
+                    # Calibrate noise floor
                     recognizer.adjust_for_ambient_noise(source, duration=0.5)
                     audio_data = recognizer.record(source)
                 
-                # Используем русский язык для распознавания
+                # Recognize text
                 recognized_text = recognizer.recognize_google(audio_data, language="ru-RU")
                 print(f"📝 [STT] Recognized: {recognized_text}", flush=True)
                 
