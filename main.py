@@ -10,8 +10,6 @@ from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse, Pla
 from fastapi.staticfiles import StaticFiles
 from groq import AsyncGroq
 import edge_tts
-import threading
-from sip_agent import start_sip_client
 
 # =====================================================================
 # LOGGING CONFIGURATION
@@ -83,7 +81,6 @@ SHUTDOWN_MESSAGES = [
     "Я не говорю прощай, я говорю 'до нового билда'. 🫡"
 ]
 
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Fetch the commit hash once when the app starts
@@ -92,15 +89,10 @@ async def lifespan(app: FastAPI):
     # Pick a random funny message for startup
     startup_joke = random.choice(STARTUP_MESSAGES)
 
-    # Запускаем SIP-клиента в фоновом потоке ДО старта веб-сервера
-    sip_thread = threading.Thread(target=start_sip_client, daemon=True)
-    sip_thread.start()
-    print("📞 [MAIN] Background SIP Agent thread started!", flush=True)
-
     # Triggered on application startup
     await send_discord_alert(
         "🟢 SYSTEM ONLINE",
-        f"**Build:** `{commit_hash}`\n_{startup_joke}_",
+        f"**Build:** `{commit_hash}`\n_{startup_joke}_\n**Asterisk PBX integration active.**",
         3066993
     )
 
@@ -196,7 +188,7 @@ async def process_voice_translation(
         source_lang: str = Form(...),
         device_info: str = Form("Unknown Device")
 ):
-    """Core pipeline: STT -> LLM -> TTS with silence fallback."""
+    """Core pipeline for Web UI: STT -> LLM -> TTS with silence fallback."""
     if not groq_client:
         return PlainTextResponse(content="GROQ_API_KEY is not configured", status_code=500)
 
@@ -215,7 +207,7 @@ async def process_voice_translation(
     file_ext = "mp4" if "mp4" in audio.content_type or "m4a" in audio.filename else "webm"
     current_prompt = PROMPT_RU if source_lang == "ru" else PROMPT_LT
 
-    # 1. STT via Groq Whisper with iOS crash protection and Smart Filter
+    # 1. STT via Groq Whisper
     is_silence = False
     try:
         stt_response = await groq_client.audio.transcriptions.create(
@@ -244,11 +236,11 @@ async def process_voice_translation(
             print(f"👻 [FILTER] Ignored silence or hallucination: '{recognized_text}'", flush=True)
             
     except Exception as e:
-        print(f"⚠️ [STT ERROR] Groq rejected audio (likely iOS glitch): {e}", flush=True)
+        print(f"⚠️ [STT ERROR] Groq rejected audio: {e}", flush=True)
         recognized_text = ""
         is_silence = True
 
-    # 2. Translation Logic (Bypass LLM if silence detected)
+    # 2. Translation Logic
     if is_silence:
         if source_lang == "ru":
             recognized_text = "[Тишина / Шум]"
@@ -260,9 +252,6 @@ async def process_voice_translation(
             selected_voice = VOICE_MAP["ru"]
 
         print(f"🔇 [SILENCE] Sending polite fallback to TTS.", flush=True)
-        log_msg = f"**Source ({source_lang.upper()}):** {recognized_text}\n**Action:** Triggered silence fallback.\n\n**Device Data:**\n{device_info}"
-        background_tasks.add_task(send_discord_alert, "🔇 Silence Detected", log_msg, 16753920)
-
     else:
         llm_response = await groq_client.chat.completions.create(
             model="openai/gpt-oss-120b",
@@ -275,7 +264,6 @@ async def process_voice_translation(
         translated_text = llm_response.choices[0].message.content.strip()
         selected_voice = VOICE_MAP["lt"] if source_lang == "ru" else VOICE_MAP["ru"]
 
-        # Formatted console output for Render logs
         print("\n" + "=" * 50, flush=True)
         print(f"🎙️ RECOGNIZED ({source_lang.upper()}): {recognized_text}", flush=True)
         print(f"🔄 TRANSLATED: {translated_text}", flush=True)
@@ -283,16 +271,10 @@ async def process_voice_translation(
         print(f"📡 DEVICE INFO:\n{device_info}", flush=True)
         print("=" * 50 + "\n", flush=True)
 
-        # Formatted Discord output
         log_msg = f"**Source ({source_lang.upper()}):** {recognized_text}\n**Translated:** {translated_text}\n\n**Device Data:**\n{device_info}"
         background_tasks.add_task(send_discord_alert, "🗣️ Translation Log", log_msg, 3447003)
 
-        if not translated_text:
-            error_msg = f"LLM returned empty string.\n**Input:** `{recognized_text}`\n\n**Device Data:**\n{device_info}"
-            background_tasks.add_task(send_discord_alert, "🚨 LLM Translation Failed", error_msg, 15548997)
-            translated_text = "Atsiprašau, sistemos klaida." if source_lang == "ru" else "Извините, системная ошибка."
-
-    # 3. Text-to-Speech (with Auto-Retry mechanism)
+    # 3. Text-to-Speech (with Auto-Retry)
     audio_stream = io.BytesIO()
     tts_success = False
 
@@ -313,13 +295,7 @@ async def process_voice_translation(
             await asyncio.sleep(0.5)
 
     if not tts_success:
-        print("🚨 [FATAL ERROR] Edge-TTS completely failed after 3 attempts.", flush=True)
-        background_tasks.add_task(
-            send_discord_alert,
-            "🚨 TTS Failed",
-            f"Edge-TTS blocked the request.\n**Text:** `{translated_text}`",
-            15548997
-        )
+        print("🚨 [FATAL ERROR] Edge-TTS completely failed.", flush=True)
         return PlainTextResponse(content="Error: TTS generation failed.", status_code=500)
 
     audio_stream.seek(0)
@@ -328,6 +304,52 @@ async def process_voice_translation(
         "X-Translated-Text": translated_text.encode("unicode_escape").decode("utf-8")
     }
     return StreamingResponse(audio_stream, media_type="audio/mpeg", headers=headers)
+
+@app.post("/api/process-asterisk-call")
+async def process_asterisk_call(
+        background_tasks: BackgroundTasks,
+        audio: UploadFile = File(...),
+        source_lang: str = Form("ru")
+):
+    """Handles audio recorded directly by Asterisk PBX, runs STT, logs, and saves text for verification."""
+    audio_bytes = await audio.read()
+    txt_path = "/opt/translator/test_record.txt"
+
+    if len(audio_bytes) == 0:
+        print("⚠️ [ASTERISK] Received empty audio file from PBX.", flush=True)
+        return {"status": "error", "message": "Empty audio"}
+
+    print(f"\n📞 [ASTERISK] Processing incoming call audio ({len(audio_bytes)} bytes)...", flush=True)
+
+    # 1. STT via Groq Whisper
+    recognized_text = ""
+    try:
+        stt_response = await groq_client.audio.transcriptions.create(
+            file=("record.wav", audio_bytes, "audio/wav"),
+            model="whisper-large-v3",
+            language=source_lang,
+            response_format="text"
+        )
+        recognized_text = stt_response.strip()
+    except Exception as e:
+        print(f"❌ [STT ERROR] Failed to transcribe telephony audio: {e}", flush=True)
+        recognized_text = "[STT Error]"
+
+    print(f"📝 [STT] Telephony Recognized: {recognized_text}", flush=True)
+
+    # 2. Save text for verification
+    try:
+        with open(txt_path, "w", encoding="utf-8") as f:
+            f.write(recognized_text)
+        print(f"💾 [STORAGE] Text successfully saved to {txt_path}", flush=True)
+    except Exception as e:
+        print(f"❌ [STORAGE ERROR] Failed to save text file: {e}", flush=True)
+
+    # 3. Discord notification
+    log_msg = f"**Source (Telephony):** {recognized_text}\n**Status:** Transcribed and saved to {txt_path}."
+    background_tasks.add_task(send_discord_alert, "📞 Asterisk Call Log", log_msg, 3447003)
+
+    return {"status": "success", "text": recognized_text}
 
 @app.get("/", response_class=HTMLResponse)
 async def serve_interface():
