@@ -38,8 +38,8 @@ def answer_call(call):
         if len(audio_frames) > 0:
             with wave.open("/opt/translator/test_record.wav", "wb") as wf:
                 wf.setnchannels(1)       # Моно
-                wf.setsampwidth(1)       # ВОТ ОНА, РАЗГАДКА! 8-bit (1 байт на сэмпл)
-                wf.setframerate(8000)    # Стандарт 8000 Hz
+                wf.setsampwidth(2)       # <--- ВОТ СЮДА ВОЗВРАЩАЕМ 2 (16-bit PCM)
+                wf.setframerate(8000)    # 8000 Hz
                 wf.writeframes(audio_frames)
             print("☎️ [SIP] Файл test_record.wav успешно создан!", flush=True)
         else:
