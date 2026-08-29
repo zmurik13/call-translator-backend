@@ -1,6 +1,7 @@
 import os
 import time
 import wave
+import audioop  # <-- НАШ СПАСИТЕЛЬ
 from dotenv import load_dotenv
 from pyVoIP.VoIP import VoIPPhone, InvalidStateError, CallState
 
@@ -24,15 +25,20 @@ def answer_call(call):
         start_time = time.time()
 
         while time.time() - start_time < 7.0:
-            # Защита от зависания: если ты положил трубку до истечения 7 секунд
             if call.state != CallState.ANSWERED:
                 print("🛑 [SIP] Собеседник повесил трубку!", flush=True)
                 break
 
-            # Читаем звук
             chunk = call.read_audio(320)
             if chunk:
-                audio_frames.extend(chunk)
+                try:
+                    # Пытаемся раскодировать из PCMU (американский стандарт G.711)
+                    decoded_chunk = audioop.ulaw2lin(chunk, 2)
+                except Exception:
+                    # Если вдруг Задарма шлет в PCMA (европейский стандарт)
+                    decoded_chunk = audioop.alaw2lin(chunk, 2)
+                
+                audio_frames.extend(decoded_chunk)
 
         print("💾 [SIP] Время вышло (или звонок окончен), сохраняем...", flush=True)
 
