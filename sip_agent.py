@@ -2,7 +2,6 @@ import os
 import time
 import wave
 import audioop
-import speech_recognition as sr
 from dotenv import load_dotenv
 from pyVoIP.VoIP import VoIPPhone, InvalidStateError, CallState
 
@@ -34,49 +33,31 @@ def answer_call(call):
                 print("🛑 [SIP] Caller hung up!", flush=True)
                 break
 
+            # Read raw audio chunk provided by pyVoIP
             chunk = call.read_audio(320)
             if chunk:
-                # ВОТ ОНО! Меняем alaw2lin на ulaw2lin (распаковываем американский кодек)
-                pcm_chunk = audioop.ulaw2lin(chunk, 2)
-                audio_frames.extend(pcm_chunk)
+                audio_frames.extend(chunk)
 
-        print("💾 [SIP] Time is up. Saving WAV...", flush=True)
+        print("💾 [SIP] Time is up. Saving test WAV files...", flush=True)
 
         if len(audio_frames) > 0:
-            wav_path = "/opt/translator/test_record.wav"
-            txt_path = "/opt/translator/test_record.txt"
-
-            # 1. Save pure PCM WAV file
-            with wave.open(wav_path, "wb") as wf:
+            # 1. Normal 16-bit PCM (Assuming pyVoIP decodes to Little-Endian PCM)
+            with wave.open("/opt/translator/test_record_normal.wav", "wb") as wf:
                 wf.setnchannels(1)       
                 wf.setsampwidth(2)       
                 wf.setframerate(8000)    
                 wf.writeframes(audio_frames)
-            print(f"☎️ [SIP] File {wav_path} successfully created!", flush=True)
+                
+            # 2. Swapped bytes (in case of Big-Endian mismatch on Linux)
+            swapped_frames = audioop.byteswap(bytes(audio_frames), 2)
+            with wave.open("/opt/translator/test_record_swapped.wav", "wb") as wf:
+                wf.setnchannels(1)       
+                wf.setsampwidth(2)       
+                wf.setframerate(8000)    
+                wf.writeframes(swapped_frames)
 
-            # 2. Read from WAV and run STT
-            print("🧠 [STT] Sending audio for transcription...", flush=True)
-            recognizer = sr.Recognizer()
-            
-            try:
-                with sr.AudioFile(wav_path) as source:
-                    # Calibrate noise floor
-                    recognizer.adjust_for_ambient_noise(source, duration=0.5)
-                    audio_data = recognizer.record(source)
-                
-                # Recognize text
-                recognized_text = recognizer.recognize_google(audio_data, language="ru-RU")
-                print(f"📝 [STT] Recognized: {recognized_text}", flush=True)
-                
-                # 3. Save text
-                with open(txt_path, "w", encoding="utf-8") as f:
-                    f.write(recognized_text)
-                print(f"✅ [STT] Text successfully saved to {txt_path}!", flush=True)
-                
-            except sr.UnknownValueError:
-                print("⚠️ [STT] Speech not recognized (no words detected or too noisy).", flush=True)
-            except sr.RequestError as e:
-                print(f"❌ [STT] Google API error: {e}", flush=True)
+            print("☎️ [SIP] Created two files: normal.wav and swapped.wav.", flush=True)
+            print("🔍 [DEBUG] STT is temporarily disabled for audio testing.", flush=True)
 
         else:
             print("⚠️ [SIP] No audio received (RTP buffer empty).", flush=True)
