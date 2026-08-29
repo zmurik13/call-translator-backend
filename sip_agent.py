@@ -1,7 +1,6 @@
 import os
 import time
 import wave
-import audioop  # <-- Возвращаем наш декодер!
 from dotenv import load_dotenv
 from pyVoIP.VoIP import VoIPPhone, InvalidStateError, CallState
 
@@ -29,18 +28,18 @@ def answer_call(call):
                 print("🛑 [SIP] Собеседник повесил трубку!", flush=True)
                 break
 
+            # Библиотека pyVoIP сама отдаёт чистый 16-битный PCM звук.
+            # Никаких дополнительных кодеков нам тут не нужно!
             chunk = call.read_audio(320)
             if chunk:
-                # ВОТ ОНА, МАГИЯ! Распаковываем американский U-LAW в нормальный 16-битный звук
-                decoded_chunk = audioop.ulaw2lin(chunk, 2)
-                audio_frames.extend(decoded_chunk)
+                audio_frames.extend(chunk)
 
         print("💾 [SIP] Время вышло (или звонок окончен), сохраняем...", flush=True)
 
         if len(audio_frames) > 0:
             with wave.open("/opt/translator/test_record.wav", "wb") as wf:
                 wf.setnchannels(1)       # Моно
-                wf.setsampwidth(2)       # 16-bit (теперь это ЧИСТЫЙ звук после распаковки)
+                wf.setsampwidth(2)       # 16-bit PCM (чистый звук)
                 wf.setframerate(8000)    # Стандарт 8000 Hz
                 wf.writeframes(audio_frames)
             print("☎️ [SIP] Файл test_record.wav успешно создан!", flush=True)
