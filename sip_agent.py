@@ -1,7 +1,8 @@
 import os
 import time
 import wave
-import speech_recognition as sr  # <-- Добавили библиотеку для STT
+import audioop  # Возвращаем наш декодер!
+import speech_recognition as sr
 from dotenv import load_dotenv
 from pyVoIP.VoIP import VoIPPhone, InvalidStateError, CallState
 
@@ -24,7 +25,6 @@ def answer_call(call):
         audio_frames = bytearray()
         start_time = time.time()
 
-        # 1. ЗАХВАТ ЗВУКА
         while time.time() - start_time < 7.0:
             if call.state != CallState.ANSWERED:
                 print("🛑 [SIP] Собеседник повесил трубку!", flush=True)
@@ -32,12 +32,14 @@ def answer_call(call):
 
             chunk = call.read_audio(320)
             if chunk:
-                audio_frames.extend(chunk)
+                # МАГИЯ: Распаковываем телефонный A-Law (PCMA) в чистый 16-bit PCM!
+                pcm_chunk = audioop.alaw2lin(chunk, 2)
+                audio_frames.extend(pcm_chunk)
 
         print("💾 [SIP] Время вышло. Сохраняем и распознаем...", flush=True)
 
         if len(audio_frames) > 0:
-            # 2. СОХРАНЕНИЕ WAV (для нашей проверки)
+            # Сохраняем WAV, чтобы ты мог послушать нормальный звук
             with wave.open("/opt/translator/test_record.wav", "wb") as wf:
                 wf.setnchannels(1)       
                 wf.setsampwidth(2)       
@@ -45,20 +47,18 @@ def answer_call(call):
                 wf.writeframes(audio_frames)
             print("☎️ [SIP] Файл test_record.wav успешно создан!", flush=True)
 
-            # 3. РАСПОЗНАВАНИЕ ТЕКСТА НА ЛЕТУ (STT)
             print("🧠 [STT] Отправляем аудио на распознавание...", flush=True)
             recognizer = sr.Recognizer()
             
-            # Упаковываем наши сырые байты в формат, понятный библиотеке
+            # Передаем УЖЕ РАСПАКОВАННЫЙ звук в Google STT
             audio_data = sr.AudioData(bytes(audio_frames), sample_rate=8000, sample_width=2)
             
             try:
-                # Используем бесплатный Google API. 
-                # Если будешь говорить не по-русски, поменяй "ru-RU" на "en-US" или "lt-LT"
+                # Если говоришь не по-русски, поменяй language
                 recognized_text = recognizer.recognize_google(audio_data, language="ru-RU")
                 print(f"📝 [STT] Распознано: {recognized_text}", flush=True)
                 
-                # 4. СОХРАНЕНИЕ ТЕКСТА В ФАЙЛ
+                # Сохраняем распознанный текст
                 with open("/opt/translator/test_record.txt", "w", encoding="utf-8") as f:
                     f.write(recognized_text)
                 print("✅ [STT] Текст успешно сохранен в test_record.txt!", flush=True)
