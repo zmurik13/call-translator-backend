@@ -1,7 +1,6 @@
 import os
 import time
 import wave
-import audioop  # Возвращаем наш декодер!
 import speech_recognition as sr
 from dotenv import load_dotenv
 from pyVoIP.VoIP import VoIPPhone, InvalidStateError, CallState
@@ -30,43 +29,45 @@ def answer_call(call):
                 print("🛑 [SIP] Собеседник повесил трубку!", flush=True)
                 break
 
+            # Берем чистый звук, как в победном test_record_8.wav
             chunk = call.read_audio(320)
             if chunk:
-                # МАГИЯ: Распаковываем телефонный A-Law (PCMA) в чистый 16-bit PCM!
-                pcm_chunk = audioop.alaw2lin(chunk, 2)
-                audio_frames.extend(pcm_chunk)
+                audio_frames.extend(chunk)
 
-        print("💾 [SIP] Время вышло. Сохраняем и распознаем...", flush=True)
+        print("💾 [SIP] Время вышло. Сохраняем WAV...", flush=True)
 
         if len(audio_frames) > 0:
-            # Сохраняем WAV, чтобы ты мог послушать нормальный звук
-            with wave.open("/opt/translator/test_record.wav", "wb") as wf:
+            wav_path = "/opt/translator/test_record.wav"
+            txt_path = "/opt/translator/test_record.txt"
+
+            # 1. СОХРАНЯЕМ ИДЕАЛЬНЫЙ WAV ФАЙЛ
+            with wave.open(wav_path, "wb") as wf:
                 wf.setnchannels(1)       
                 wf.setsampwidth(2)       
                 wf.setframerate(8000)    
                 wf.writeframes(audio_frames)
-            print("☎️ [SIP] Файл test_record.wav успешно создан!", flush=True)
+            print(f"☎️ [SIP] Файл {wav_path} успешно создан!", flush=True)
 
-            print("🧠 [STT] Отправляем аудио на распознавание...", flush=True)
+            # 2. ЧИТАЕМ ПРЯМО ИЗ ФАЙЛА И РАСПОЗНАЕМ (Самый надежный способ!)
+            print("🧠 [STT] Отправляем аудио из файла на распознавание...", flush=True)
             recognizer = sr.Recognizer()
             
-            # Передаем УЖЕ РАСПАКОВАННЫЙ звук в Google STT
-            audio_data = sr.AudioData(bytes(audio_frames), sample_rate=8000, sample_width=2)
-            
             try:
-                # Если говоришь не по-русски, поменяй language
+                with sr.AudioFile(wav_path) as source:
+                    audio_data = recognizer.record(source)
+                
                 recognized_text = recognizer.recognize_google(audio_data, language="ru-RU")
                 print(f"📝 [STT] Распознано: {recognized_text}", flush=True)
                 
-                # Сохраняем распознанный текст
-                with open("/opt/translator/test_record.txt", "w", encoding="utf-8") as f:
+                # 3. СОХРАНЯЕМ ТЕКСТ
+                with open(txt_path, "w", encoding="utf-8") as f:
                     f.write(recognized_text)
-                print("✅ [STT] Текст успешно сохранен в test_record.txt!", flush=True)
+                print(f"✅ [STT] Текст успешно сохранен в {txt_path}!", flush=True)
                 
             except sr.UnknownValueError:
-                print("⚠️ [STT] Речь не распознана (ты молчал или было слишком шумно).", flush=True)
+                print("⚠️ [STT] Речь не распознана (Google не разобрал слова).", flush=True)
             except sr.RequestError as e:
-                print(f"❌ [STT] Ошибка сервиса распознавания: {e}", flush=True)
+                print(f"❌ [STT] Ошибка сервиса Google: {e}", flush=True)
 
         else:
             print("⚠️ [SIP] Аудио не получено (пустой буфер RTP).", flush=True)
