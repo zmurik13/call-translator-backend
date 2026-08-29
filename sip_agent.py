@@ -13,43 +13,37 @@ SIP_PASSWORD = os.getenv("ZADARMA_SIP_PASSWORD")
 
 
 def answer_call(call):
-    """
-    Отвечает на звонок и записывает 7 секунд аудио в test_record.wav
-    """
     caller_number = call.request.headers.get('From', {}).get('number', 'Unknown')
-    print(f"\n📞 [SIP] Входящий звонок от: {caller_number}")
+    print(f"\n📞 [SIP] Входящий звонок от: {caller_number}", flush=True)
 
     try:
         call.answer()
-        print("✅ [SIP] Трубка снята! Говори в телефон (идет запись 7 секунд)...")
+        print("✅ [SIP] Трубка снята! Говори в телефон (идет запись 7 секунд)...", flush=True)
 
         audio_frames = bytearray()
         start_time = time.time()
 
-        # Цикл: читаем звук из линии ровно 7 секунд
         while time.time() - start_time < 7.0:
-            # Читаем кусочки аудио.
-            # 320 байт = 20 миллисекунд звука (формат PCM, 16-bit, 8000 Hz)
             chunk = call.read_audio(320)
             if chunk:
                 audio_frames.extend(chunk)
 
-        print("💾 [SIP] Время вышло, сохраняем звук в файл...")
+        print("💾 [SIP] Время вышло, сохраняем звук в файл...", flush=True)
 
-        # Сохраняем собранные байты в стандартный WAV-файл
-        with wave.open("test_record.wav", "wb") as wf:
-            wf.setnchannels(1)       # Моно
-            wf.setsampwidth(2)       # 16-bit (2 байта на сэмпл)
-            wf.setframerate(8000)    # 8000 Hz (стандарт качества SIP)
+        # ЖЕСТКИЙ АБСОЛЮТНЫЙ ПУТЬ
+        with wave.open("/opt/translator/test_record.wav", "wb") as wf:
+            wf.setnchannels(1)
+            wf.setsampwidth(2)
+            wf.setframerate(8000)
             wf.writeframes(audio_frames)
 
         call.hangup()
-        print("☎️ [SIP] Звонок завершен. Файл test_record.wav успешно создан!")
+        print("☎️ [SIP] Звонок завершен. Файл сохранен!", flush=True)
 
     except InvalidStateError as e:
-        print(f"⚠️ [SIP] Ошибка состояния звонка: {e}")
+        print(f"⚠️ [SIP] Ошибка состояния звонка: {e}", flush=True)
     except Exception as e:
-        print(f"❌ [SIP] Непредвиденная ошибка: {e}")
+        print(f"❌ [SIP] Непредвиденная ошибка: {e}", flush=True)
 
 
 def start_sip_client():
