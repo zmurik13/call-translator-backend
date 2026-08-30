@@ -146,7 +146,7 @@ async function startRec(lang, e) {
         formData.append('device_info', telemetry);
 
         try {
-            const response = await fetch('/api/translate-voice', { method: 'POST', body: formData });
+            const response = await fetch('/api/web/translate-voice', { method: 'POST', body: formData });
             if (!response.ok) throw new Error(await response.text());
 
             recognizedDiv.innerText = JSON.parse('"' + (response.headers.get("X-Recognized-Text") || "") + '"');
