@@ -7,8 +7,5 @@ groq>=0.5.0
 python-multipart>=0.0.9
 python-dotenv
 pyVoIP
-<<<<<<< HEAD
 audioop-lts
-=======
 SpeechRecognition
->>>>>>> 6a09e4ad74b9346e67557e9833727f07a84a0b65
