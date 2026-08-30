@@ -83,3 +83,26 @@ async def generate_speech(text, target_lang):
 			await asyncio.sleep(0.5)
 
 	return None, False
+
+
+async def detect_language_audio(audio_bytes, file_name, content_type):
+	"""Определяет язык по короткому 3-секундному аудио-отрезку."""
+	try:
+		# Просим Whisper вернуть JSON с метаданными, где лежит язык
+		res = await groq_client.audio.transcriptions.create(
+			file=(file_name, audio_bytes, content_type),
+			model="whisper-large-v3",
+			response_format="verbose_json"
+		)
+		# Извлекаем определенный язык (Whisper вернет 'lithuanian', 'russian' и т.д.)
+		detected = res.language.lower()
+		print(f"🕵️ [DETECTOR] Whisper услышал язык: {detected}")
+
+		if "lithuanian" in detected or "lt" in detected:
+			return "LT"
+
+		# Если это русский или вообще непонятный шум - кидаем на живого менеджера
+		return "RU"
+	except Exception as e:
+		print(f"❌ [DETECTOR] Ошибка определения языка: {e}")
+		return "RU"
