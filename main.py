@@ -15,20 +15,15 @@ import edge_tts
 # LOGGING CONFIGURATION
 # =====================================================================
 
-# Configure base logging for Render console
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("translator_gateway")
 
-# 1. Silence the overly talkative httpx logger (only show warnings/errors)
 logging.getLogger("httpx").setLevel(logging.WARNING)
 
-# 2. Create a custom filter to hide /ping requests from Uvicorn access logs
 class EndpointFilter(logging.Filter):
     def filter(self, record: logging.LogRecord) -> bool:
-        # Ignore any log message containing "/ping"
         return record.getMessage().find("/ping") == -1
 
-# Apply the filter to the uvicorn access logger
 logging.getLogger("uvicorn.access").addFilter(EndpointFilter())
 
 # =====================================================================
@@ -45,7 +40,6 @@ groq_client = AsyncGroq(api_key=GROQ_API_KEY) if GROQ_API_KEY else None
 # =====================================================================
 
 async def send_discord_alert(title: str, message: str, color: int = 3447003):
-    """Sends rich embed alerts to Discord Webhook."""
     if not DISCORD_WEBHOOK_URL:
         return
     payload = {
@@ -60,10 +54,6 @@ async def send_discord_alert(title: str, message: str, color: int = 3447003):
             await client.post(DISCORD_WEBHOOK_URL, json=payload)
         except Exception as e:
             print(f"❌ Failed to send Discord alert: {e}", flush=True)
-
-# =====================================================================
-# FUNNY SYSADMIN QUOTES FOR DISCORD LOGS
-# =====================================================================
 
 STARTUP_MESSAGES = [
     "Новая смена заступила! ☕",
@@ -83,25 +73,16 @@ SHUTDOWN_MESSAGES = [
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Fetch the commit hash once when the app starts
     commit_hash = os.environ.get("RENDER_GIT_COMMIT", "unknown")[:7]
-
-    # Pick a random funny message for startup
     startup_joke = random.choice(STARTUP_MESSAGES)
 
-    # Triggered on application startup
     await send_discord_alert(
         "🟢 SYSTEM ONLINE",
         f"**Build:** `{commit_hash}`\n_{startup_joke}_\n**Asterisk PBX integration active.**",
         3066993
     )
-
     yield
-
-    # Pick a random funny message for shutdown
     shutdown_joke = random.choice(SHUTDOWN_MESSAGES)
-
-    # Triggered on graceful application shutdown
     await send_discord_alert(
         "🔴 SYSTEM OFFLINE",
         f"**Build:** `{commit_hash}`\n_{shutdown_joke}_",
@@ -113,15 +94,12 @@ async def lifespan(app: FastAPI):
 # =====================================================================
 
 app = FastAPI(title="Real-Time Voice Translator", lifespan=lifespan)
-
-# Mount static folder for CSS, JS, and HTML
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 # =====================================================================
 # PROMPTS & CONFIGURATION
 # =====================================================================
 
-# Strict grammar, punctuation, and PHONETIC TYPO correction prompt
 SYSTEM_PROMPT = """You are an elite, ultra-fast speech translator between Russian and Lithuanian.
 CRITICAL INSTRUCTIONS:
 The input comes from a Speech-to-Text system (Whisper). It often contains phonetic typos (like 'lietai' instead of 'lėtai') or misheard words due to background noise.
@@ -141,7 +119,6 @@ VOICE_MAP = {
     "ru": "ru-RU-DmitryNeural"
 }
 
-# Blacklist for common Whisper silence hallucinations
 WHISPER_HALLUCINATIONS = [
     "продолжение следует",
     "подписывайтесь на канал",
@@ -159,12 +136,10 @@ WHISPER_HALLUCINATIONS = [
 
 @app.get("/ping")
 async def keep_alive_ping():
-    """Endpoint for UptimeRobot to keep the Render container awake."""
     return {"status": "alive", "message": "Ready to translate!"}
 
 @app.api_route("/zadarma-webhook", methods=["GET", "POST"])
 async def zadarma_webhook_handler(request: Request, background_tasks: BackgroundTasks):
-    """Handles incoming webhooks from Zadarma PBX."""
     zd_echo = request.query_params.get("zd_echo")
     if zd_echo:
         return PlainTextResponse(content=zd_echo, status_code=200)
@@ -207,7 +182,6 @@ async def process_voice_translation(
     file_ext = "mp4" if "mp4" in audio.content_type or "m4a" in audio.filename else "webm"
     current_prompt = PROMPT_RU if source_lang == "ru" else PROMPT_LT
 
-    # 1. STT via Groq Whisper
     is_silence = False
     try:
         stt_response = await groq_client.audio.transcriptions.create(
@@ -219,8 +193,7 @@ async def process_voice_translation(
         )
         recognized_text = stt_response.strip()
         recognized_lower = recognized_text.lower().strip('.?!, ')
-        
-        # Smart hallucination filter
+
         if not recognized_lower:
             is_silence = True
         else:
@@ -228,19 +201,17 @@ async def process_voice_translation(
                 if h in recognized_lower:
                     is_silence = True
                     break
-            
             if recognized_lower in ["ačiū", "спасибо", "привет", "labas", "dėkis"]:
                 is_silence = True
 
         if is_silence:
             print(f"👻 [FILTER] Ignored silence or hallucination: '{recognized_text}'", flush=True)
-            
+
     except Exception as e:
         print(f"⚠️ [STT ERROR] Groq rejected audio: {e}", flush=True)
         recognized_text = ""
         is_silence = True
 
-    # 2. Translation Logic
     if is_silence:
         if source_lang == "ru":
             recognized_text = "[Тишина / Шум]"
@@ -250,7 +221,6 @@ async def process_voice_translation(
             recognized_text = "[Tyla / Triukšmas]"
             translated_text = "Извините, я вас не расслышал. Повторите, пожалуйста."
             selected_voice = VOICE_MAP["ru"]
-
         print(f"🔇 [SILENCE] Sending polite fallback to TTS.", flush=True)
     else:
         llm_response = await groq_client.chat.completions.create(
@@ -274,7 +244,6 @@ async def process_voice_translation(
         log_msg = f"**Source ({source_lang.upper()}):** {recognized_text}\n**Translated:** {translated_text}\n\n**Device Data:**\n{device_info}"
         background_tasks.add_task(send_discord_alert, "🗣️ Translation Log", log_msg, 3447003)
 
-    # 3. Text-to-Speech (with Auto-Retry)
     audio_stream = io.BytesIO()
     tts_success = False
 
@@ -311,7 +280,7 @@ async def process_asterisk_call(
         audio: UploadFile = File(...),
         source_lang: str = Form("ru")
 ):
-    """Handles audio recorded directly by Asterisk PBX, runs STT, logs, and saves text for verification."""
+    """Handles audio recorded directly by Asterisk PBX, runs STT with Prompts & Filters."""
     audio_bytes = await audio.read()
     txt_path = "/opt/translator/test_record.txt"
 
@@ -321,23 +290,42 @@ async def process_asterisk_call(
 
     print(f"\n📞 [ASTERISK] Processing incoming call audio ({len(audio_bytes)} bytes)...", flush=True)
 
-    # 1. STT via Groq Whisper
+    current_prompt = PROMPT_RU if source_lang == "ru" else PROMPT_LT
     recognized_text = ""
+    is_silence = False
+
     try:
+        # Groq Whisper API expects a standard audio format mapping. .wav16 is technically WAV PCM.
         stt_response = await groq_client.audio.transcriptions.create(
             file=("record.wav", audio_bytes, "audio/wav"),
             model="whisper-large-v3",
+            prompt=current_prompt,
             language=source_lang,
             response_format="text"
         )
         recognized_text = stt_response.strip()
+        recognized_lower = recognized_text.lower().strip('.?!, ')
+
+        if not recognized_lower:
+            is_silence = True
+        else:
+            for h in WHISPER_HALLUCINATIONS:
+                if h in recognized_lower:
+                    is_silence = True
+                    break
+            if recognized_lower in ["ačiū", "спасибо", "привет", "labas", "dėkis", "спасибо."]:
+                is_silence = True
+
+        if is_silence:
+            print(f"👻 [FILTER] Ignored silence or hallucination: '{recognized_text}'", flush=True)
+            recognized_text = "[Тишина / Шум / Галлюцинация]"
+
     except Exception as e:
         print(f"❌ [STT ERROR] Failed to transcribe telephony audio: {e}", flush=True)
         recognized_text = "[STT Error]"
 
     print(f"📝 [STT] Telephony Recognized: {recognized_text}", flush=True)
 
-    # 2. Save text for verification
     try:
         with open(txt_path, "w", encoding="utf-8") as f:
             f.write(recognized_text)
@@ -345,7 +333,6 @@ async def process_asterisk_call(
     except Exception as e:
         print(f"❌ [STORAGE ERROR] Failed to save text file: {e}", flush=True)
 
-    # 3. Discord notification
     log_msg = f"**Source (Telephony):** {recognized_text}\n**Status:** Transcribed and saved to {txt_path}."
     background_tasks.add_task(send_discord_alert, "📞 Asterisk Call Log", log_msg, 3447003)
 
@@ -353,7 +340,6 @@ async def process_asterisk_call(
 
 @app.get("/", response_class=HTMLResponse)
 async def serve_interface():
-    """Serve the static HTML interface."""
     return FileResponse("static/index.html")
 
 if __name__ == "__main__":
