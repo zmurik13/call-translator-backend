@@ -1,3 +1,8 @@
+/* Глобальный сброс для правильного подсчета ширины */
+* {
+    box-sizing: border-box;
+}
+
 :root {
     --bg-color: #0f172a;
     --panel-bg: rgba(30, 41, 59, 0.6);
@@ -18,7 +23,8 @@ body {
     display: flex;
     flex-direction: column;
     align-items: center;
-    touch-action: manipulation; /* Блокируем двойной тап на iOS */
+    /* Блокируем двойной тап на iOS на уровне всего body */
+    touch-action: manipulation;
 }
 
 .header {
@@ -31,10 +37,10 @@ body {
     -webkit-backdrop-filter: blur(12px);
 }
 
-.header h2 { 
-    margin: 0; 
-    font-weight: 600; 
-    letter-spacing: 0.5px; 
+.header h2 {
+    margin: 0;
+    font-weight: 600;
+    letter-spacing: 0.5px;
     font-size: 1.5rem;
 }
 
@@ -76,21 +82,27 @@ body {
     outline: none;
     user-select: none;
     -webkit-user-select: none;
+
+    /* 🔴 КРИТИЧНО ДЛЯ POINTER EVENTS (JS) - Блокируем скролл по кнопке */
+    touch-action: none;
+
+    /* 🔴 УБИРАЕМ СЕРЫЙ/СИНИЙ КВАДРАТ ПРИ ТАПЕ НА IOS/ANDROID */
+    -webkit-tap-highlight-color: transparent;
 }
 
-.btn span { 
-    font-size: 0.75em; 
+.btn span {
+    font-size: 0.75em;
     color: var(--text-muted);
-    font-weight: 400; 
+    font-weight: 400;
 }
 
 #btnRu { border-bottom: 4px solid var(--accent-ru); }
 #btnLt { border-bottom: 4px solid var(--accent-lt); }
 
 /* Эффект физического нажатия */
-.btn:active { 
-    transform: translateY(6px); 
-    border-bottom-width: 0px; 
+.btn:active {
+    transform: translateY(6px);
+    border-bottom-width: 0px;
     margin-bottom: 4px;
 }
 
@@ -107,16 +119,16 @@ body {
     animation: pulse-lt 1.5s infinite;
 }
 
-@keyframes pulse-ru { 
-    0% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.4); } 
-    70% { box-shadow: 0 0 0 20px rgba(16, 185, 129, 0); } 
-    100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); } 
+@keyframes pulse-ru {
+    0% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.4); }
+    70% { box-shadow: 0 0 0 20px rgba(16, 185, 129, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
 }
 
-@keyframes pulse-lt { 
-    0% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.4); } 
-    70% { box-shadow: 0 0 0 20px rgba(59, 130, 246, 0); } 
-    100% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0); } 
+@keyframes pulse-lt {
+    0% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.4); }
+    70% { box-shadow: 0 0 0 20px rgba(59, 130, 246, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0); }
 }
 
 /* Панели с текстом */
@@ -134,11 +146,11 @@ body {
     -webkit-backdrop-filter: blur(10px);
 }
 
-.text-box strong { 
-    color: var(--text-muted); 
-    font-size: 0.85em; 
-    text-transform: uppercase; 
-    letter-spacing: 1px; 
+.text-box strong {
+    color: var(--text-muted);
+    font-size: 0.85em;
+    text-transform: uppercase;
+    letter-spacing: 1px;
     display: flex;
     align-items: center;
     gap: 8px;
@@ -147,20 +159,20 @@ body {
 .dot-ru { color: var(--accent-ru); font-size: 1.2em; }
 .dot-lt { color: var(--accent-lt); font-size: 1.2em; }
 
-#recognized { 
-    margin-top: 10px; 
-    color: #cbd5e1; 
-    font-size: 1.05em; 
+#recognized {
+    margin-top: 10px;
+    color: #cbd5e1;
+    font-size: 1.05em;
     line-height: 1.4;
 }
 
-#translated { 
-    margin-top: 10px; 
-    color: #ffffff; 
-    font-size: 1.25em; 
-    font-weight: 500; 
+#translated {
+    margin-top: 10px;
+    color: #ffffff;
+    font-size: 1.25em;
+    font-weight: 500;
     line-height: 1.4;
-    text-shadow: 0 0 20px rgba(255,255,255,0.1); 
+    text-shadow: 0 0 20px rgba(255,255,255,0.1);
 }
 
 /* Убираем отступы на самом последнем элементе, чтобы не было лишнего скролла. */
