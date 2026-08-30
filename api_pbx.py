@@ -25,9 +25,9 @@ async def process_pbx_audio(
         translated_text = "[Тишина / Шум]"
 
     # 3. Сохраняем логи
-    with open("/opt/translator/test_raw.txt", "w", encoding="utf-8") as f:
+    with open("/opt/translator/records/test_raw.txt", "w", encoding="utf-8") as f:
         f.write(raw_text)
-    with open("/opt/translator/test_translated.txt", "w", encoding="utf-8") as f:
+    with open("/opt/translator/records/test_translated.txt", "w", encoding="utf-8") as f:
         f.write(translated_text)
 
     msg = f"**Raw STT:** {raw_text}\n**LLM Translated:** {translated_text}"

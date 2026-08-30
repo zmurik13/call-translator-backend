@@ -6,6 +6,7 @@
 
 # Игнорируем виртуальные окружения и кэш Python
 venv/
+records/
 __pycache__/
 *.pyc
 
