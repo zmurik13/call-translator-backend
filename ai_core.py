@@ -86,28 +86,37 @@ async def generate_speech(text, target_lang):
 
 
 async def detect_language_audio(audio_bytes, file_name, content_type):
-	"""Определяет язык по короткому аудио-отрезку с расширенным prompt'ом приветствий."""
+	"""Определяет язык по транскрипции текста (поиск ключевых слов)."""
 	try:
-		# Богатый prompt с типичными телефонными приветствиями на LT и RU
+		# Подсказка для нейросети, чтобы она правильно расслышала слова
 		greetings_prompt = (
 			"Sveiki, laba diena, labas rytas, labas vakaras, klausau, alio. "
 			"Здравствуйте, добрый день, доброе утро, добрый вечер, привет, слушаю вас, алло."
 		)
 
+		# Просим вернуть просто распознанный текст
 		res = await groq_client.audio.transcriptions.create(
 			file=(file_name, audio_bytes, content_type),
 			model="whisper-large-v3",
 			prompt=greetings_prompt,
-			response_format="verbose_json"
+			response_format="text"
 		)
 
-		detected = res.language.lower()
-		print(f"🕵️ [DETECTOR] Whisper услышал язык: {detected}")
+		# Очищаем текст от знаков препинания и переводим в нижний регистр
+		text = res.lower().strip('.?!, ')
+		print(f"🕵️ [DETECTOR] Whisper услышал текст: '{text}'")
 
-		if "lithuanian" in detected or "lt" in detected:
+		# Список литовских слов-маркеров
+		lt_keywords = ["laba", "labas", "sveiki", "rytas", "vakaras", "klausau", "alio", "taip", "klausome"]
+
+		# Ищем литовские слова
+		if any(word in text for word in lt_keywords):
+			print("✅ [DETECTOR] Найдены литовские маркеры -> LT")
 			return "LT"
 
+		print("✅ [DETECTOR] Литовских слов нет -> RU (по умолчанию)")
 		return "RU"
+
 	except Exception as e:
-		print(f"❌ [DETECTOR] Ошибка определения языка: {e}")
+		print(f"❌ [DETECTOR] Ошибка: {e}")
 		return "RU"
