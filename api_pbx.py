@@ -3,23 +3,40 @@ from fastapi import APIRouter, UploadFile, File, Form, BackgroundTasks
 from fastapi.responses import PlainTextResponse
 import ai_core
 from utils import send_discord_alert
+from fastapi import BackgroundTasks  # Убедись, что BackgroundTasks импортирован!
 
 router = APIRouter(prefix="/api/pbx", tags=["Telephony"])
 
 
 @router.post("/detect-language")
-async def pbx_detect_language(audio: UploadFile = File(...)):
+async def pbx_detect_language(
+		background_tasks: BackgroundTasks,
+		audio: UploadFile = File(...)
+):
 	"""
-    Asterisk uses this endpoint for quick language detection (first 3 seconds).
-    Returns 'RU' or 'LT'.
-    """
+	Asterisk uses this endpoint for quick language detection (first 3 seconds).
+	Returns 'RU' or 'LT' and logs the decision.
+	"""
 	audio_bytes = await audio.read()
 
 	if not audio_bytes:
+		print("⚠️ [DETECT] Ошибка: Получено пустое аудио от Asterisk!")
 		return PlainTextResponse(content="RU", status_code=200)
 
-	# Run the audio chunk through our new language detector
+	print(f"\n🎧 [DETECT] Получено аудио для анализа ({len(audio_bytes)} байт)...")
+
+	# Прогоняем через наш детектор
 	lang = await ai_core.detect_language_audio(audio_bytes, "detect.wav", "audio/wav")
+
+	print(f"✅ [DETECT] Нейросеть приняла решение маршрутизации: {lang}")
+
+	# ===== УМНОЕ ЛОГИРОВАНИЕ В DISCORD =====
+	action_text = "📞 Проброс звонка на менеджера (SIP 101)" if lang == "RU" else "🤖 Запуск ИИ-переводчика"
+	color = 15158332 if lang == "RU" else 3066993  # Красный для RU, Зеленый для LT
+
+	msg = f"**Услышанный язык:** `{lang}`\n**Действие:** {action_text}"
+	background_tasks.add_task(send_discord_alert, "🔀 Smart Call Routing", msg, color)
+	# =======================================
 
 	return PlainTextResponse(content=lang, status_code=200)
 
