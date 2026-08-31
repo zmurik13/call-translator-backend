@@ -86,41 +86,36 @@ async def generate_speech(text, target_lang):
 
 
 async def detect_language_audio(audio_bytes, file_name, content_type):
-	"""Определяет язык по транскрипции текста (поиск ключевых слов)."""
-	try:
-		# Подсказка для нейросети, чтобы она правильно расслышала слова
-		greetings_prompt = (
-			"Sveiki, laba diena, labas rytas, labas vakaras, klausau, alio. "
-			"Здравствуйте, добрый день, доброе утро, добрый вечер, привет, слушаю вас, алло."
-		)
+    """Определяет язык по транскрипции текста (поиск ключевых слов)."""
+    try:
+       # Оставляем в подсказке только литовский контекст
+       greetings_prompt = "Sveiki, laba diena, labas rytas, labas vakaras, klausau, alio, skambinu pagal skelbimą."
 
-		# Просим вернуть просто распознанный текст
-		res = await groq_client.audio.transcriptions.create(
-			file=(file_name, audio_bytes, content_type),
-			model="whisper-large-v3",
-			prompt=greetings_prompt,
-			response_format="text"
-		)
+       # ЖЕСТКО ЗАДАЕМ ЯЗЫК (language="lt"), чтобы убить галлюцинации
+       res = await groq_client.audio.transcriptions.create(
+          file=(file_name, audio_bytes, content_type),
+          model="whisper-large-v3",
+          prompt=greetings_prompt,
+          language="lt",  # <--- Вот она, наша броня от фантазий!
+          response_format="text"
+       )
 
-		# Очищаем текст от знаков препинания и переводим в нижний регистр
-		text = res.lower().strip('.?!, ')
-		print(f"🕵️ [DETECTOR] Whisper услышал текст: '{text}'")
+       text = res.lower().strip('.?!, ')
+       print(f"🕵️ [DETECTOR] Whisper услышал текст: '{text}'")
 
-		# Список литовских слов-маркеров (латиница + кириллица + галлюцинации)
-		lt_keywords = [
-			"laba", "labas", "sveiki", "rytas", "vakaras", "klausau", "alio", "taip", "klausome",
-			"лаба", "лабас", "свейки", "ритас", "вакарас", "алио", "клаусау",
-			"zvi'et kem", "zveiki"
-		]
+       # Теперь словарь чистый! Выкидываем кириллицу и словенский бред.
+       lt_keywords = [
+	       "laba", "labas", "sveiki", "rytas", "vakaras", "klausau", "taip", "klausome",
+	       "skambinu", "skelbimą", "skelbimo", "skelbima"
+       ]
 
-		# Ищем литовские слова
-		if any(word in text for word in lt_keywords):
-			print("✅ [DETECTOR] Найдены литовские маркеры -> LT")
-			return "LT"
+       if any(word in text for word in lt_keywords):
+          print("✅ [DETECTOR] Найдены литовские маркеры -> LT")
+          return "LT"
 
-		print("✅ [DETECTOR] Литовских слов нет -> RU (по умолчанию)")
-		return "RU"
+       print("✅ [DETECTOR] Литовских слов нет -> RU (по умолчанию)")
+       return "RU"
 
-	except Exception as e:
-		print(f"❌ [DETECTOR] Ошибка: {e}")
-		return "RU"
+    except Exception as e:
+       print(f"❌ [DETECTOR] Ошибка: {e}")
+       return "RU"
