@@ -5,6 +5,7 @@ import ai_core
 from utils import send_discord_alert
 from fastapi import BackgroundTasks
 from datetime import datetime
+import zoneinfo
 
 router = APIRouter(prefix="/api/pbx", tags=["Telephony"])
 
@@ -42,7 +43,9 @@ async def pbx_detect_language(
 	action_text = "Routing to Manager (SIP 101)" if lang == "RU" else "Starting AI Translator"
 	color = 15158332 if lang == "RU" else 3066993  # Red for RU, Green for LT
 
-	current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+	# Принудительно ставим таймзону Вильнюса
+	tz = zoneinfo.ZoneInfo("Europe/Vilnius")
+	current_time = datetime.now(tz).strftime("%Y-%m-%d %H:%M:%S")
 
 	msg = (
 		f"🕒 **Time:** `{current_time}`\n"

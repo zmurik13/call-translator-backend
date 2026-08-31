@@ -106,11 +106,11 @@ async def detect_language_audio(audio_bytes, file_name, content_type):
 		text = res.lower().strip('.?!, ')
 		print(f"🕵️ [DETECTOR] Whisper услышал текст: '{text}'")
 
-		# Список литовских слов-маркеров
-		# Список литовских слов-маркеров (латиница + кириллические галлюцинации Whisper)
+		# Список литовских слов-маркеров (латиница + кириллица + галлюцинации)
 		lt_keywords = [
 			"laba", "labas", "sveiki", "rytas", "vakaras", "klausau", "alio", "taip", "klausome",
-			"лаба", "лабас", "свейки", "ритас", "вакарас", "алио", "клаусау"
+			"лаба", "лабас", "свейки", "ритас", "вакарас", "алио", "клаусау",
+			"zvi'et kem"
 		]
 
 		# Ищем литовские слова
