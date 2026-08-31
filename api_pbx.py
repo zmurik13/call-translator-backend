@@ -3,7 +3,8 @@ from fastapi import APIRouter, UploadFile, File, Form, BackgroundTasks
 from fastapi.responses import PlainTextResponse
 import ai_core
 from utils import send_discord_alert
-from fastapi import BackgroundTasks  # Убедись, что BackgroundTasks импортирован!
+from fastapi import BackgroundTasks
+from datetime import datetime
 
 router = APIRouter(prefix="/api/pbx", tags=["Telephony"])
 
@@ -37,11 +38,19 @@ async def pbx_detect_language(
 
 	print(f"✅ [DETECT] Нейросеть приняла решение (Звонок {caller_id}): {lang}")
 
-	# ===== УМНОЕ ЛОГИРОВАНИЕ В DISCORD =====
-	action_text = "📞 Проброс звонка на менеджера (SIP 101)" if lang == "RU" else "🤖 Запуск ИИ-переводчика"
-	color = 15158332 if lang == "RU" else 3066993  # Красный для RU, Зеленый для LT
+	# ===== SMART DISCORD LOGGING =====
+	action_text = "Routing to Manager (SIP 101)" if lang == "RU" else "Starting AI Translator"
+	color = 15158332 if lang == "RU" else 3066993  # Red for RU, Green for LT
 
-	msg = f"**Номер:** `{caller_id}`\n**Услышанный язык:** `{lang}`\n**Действие:** {action_text}"
+	current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+	msg = (
+		f"🕒 **Time:** `{current_time}`\n"
+		f"📱 **Caller:** `{caller_id}`\n"
+		f"🗣️ **Detected Language:** `{lang}`\n"
+		f"⚙️ **Action:** {action_text}"
+	)
+
 	background_tasks.add_task(send_discord_alert, "🔀 Smart Call Routing", msg, color)
 	# =======================================
 
