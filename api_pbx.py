@@ -11,30 +11,37 @@ router = APIRouter(prefix="/api/pbx", tags=["Telephony"])
 @router.post("/detect-language")
 async def pbx_detect_language(
 		background_tasks: BackgroundTasks,
-		audio: UploadFile = File(...)
+		audio: UploadFile = File(...),
+		caller_id: str = Form("Unknown")  # Ловим номер от Астериска
 ):
 	"""
-	Asterisk uses this endpoint for quick language detection (first 3 seconds).
-	Returns 'RU' or 'LT' and logs the decision.
+	Asterisk uses this endpoint for quick language detection.
 	"""
 	audio_bytes = await audio.read()
 
 	if not audio_bytes:
-		print("⚠️ [DETECT] Ошибка: Получено пустое аудио от Asterisk!")
+		print(f"⚠️ [DETECT] Ошибка: Получено пустое аудио от {caller_id}!")
 		return PlainTextResponse(content="RU", status_code=200)
 
-	print(f"\n🎧 [DETECT] Получено аудио для анализа ({len(audio_bytes)} байт)...")
+	# ===== СОХРАНЯЕМ ФАЙЛ ДЛЯ ОТЛАДКИ =====
+	debug_path = "/opt/translator/records/debug_detect.wav"
+	with open(debug_path, "wb") as f:
+		f.write(audio_bytes)
+	print(f"💾 [DEBUG] Аудио сохранено для проверки: {debug_path}")
+	# ======================================
+
+	print(f"\n🎧 [DETECT] Звонок от {caller_id}. Аудио для анализа ({len(audio_bytes)} байт)...")
 
 	# Прогоняем через наш детектор
 	lang = await ai_core.detect_language_audio(audio_bytes, "detect.wav", "audio/wav")
 
-	print(f"✅ [DETECT] Нейросеть приняла решение маршрутизации: {lang}")
+	print(f"✅ [DETECT] Нейросеть приняла решение (Звонок {caller_id}): {lang}")
 
 	# ===== УМНОЕ ЛОГИРОВАНИЕ В DISCORD =====
 	action_text = "📞 Проброс звонка на менеджера (SIP 101)" if lang == "RU" else "🤖 Запуск ИИ-переводчика"
 	color = 15158332 if lang == "RU" else 3066993  # Красный для RU, Зеленый для LT
 
-	msg = f"**Услышанный язык:** `{lang}`\n**Действие:** {action_text}"
+	msg = f"**Номер:** `{caller_id}`\n**Услышанный язык:** `{lang}`\n**Действие:** {action_text}"
 	background_tasks.add_task(send_discord_alert, "🔀 Smart Call Routing", msg, color)
 	# =======================================
 
