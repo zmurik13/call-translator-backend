@@ -4,39 +4,42 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Voice Translator</title>
-    <!-- Подключаем наш внешний CSS -->
-    <link rel="stylesheet" href="/static/style.css?v=2">
+    <link rel="stylesheet" href="/static/style.css?v=3">
 </head>
 <body>
 
     <div class="header">
-        <h2>AI Translator</h2>
+        <select id="langPairSelector" class="pair-selector">
+            <option value="ru-lt">🇷🇺 RU ↔ 🇱🇹 LT</option>
+            <option value="ru-pl">🇷🇺 RU ↔ 🇵🇱 PL</option>
+            <option value="lt-pl">🇱🇹 LT ↔ 🇵🇱 PL</option>
+        </select>
         <div id="status">Зажмите кнопку для перевода</div>
     </div>
-    
+
     <div class="container">
-        <button id="btnRu" class="btn">
-            🇷🇺 RU ➔ LT
+        <!-- Кнопки теперь универсальные, их текст обновляется через JS -->
+        <button id="btnTop" class="btn">
+            <div id="btnTopLabel">🇷🇺 RU ➔ LT</div>
             <span>Зажать и говорить</span>
         </button>
-        
-        <button id="btnLt" class="btn">
-            🇱🇹 LT ➔ RU
+
+        <button id="btnBottom" class="btn">
+            <div id="btnBottomLabel">🇱🇹 LT ➔ RU</div>
             <span>Зажать и говорить</span>
         </button>
     </div>
 
     <div class="text-box">
-        <strong><span class="dot-ru">●</span> Распознано:</strong>
+        <strong><span id="dotSource">●</span> Распознано:</strong>
         <div id="recognized">...</div>
     </div>
-    
+
     <div class="text-box">
-        <strong><span class="dot-lt">●</span> Перевод:</strong>
+        <strong><span id="dotTarget">●</span> Перевод:</strong>
         <div id="translated">...</div>
     </div>
 
-    <!-- Подключаем наш внешний JS -->
-    <script src="/static/app.js?v=2"></script>
+    <script src="/static/app.js?v=3"></script>
 </body>
 </html>

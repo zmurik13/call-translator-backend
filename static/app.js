@@ -5,15 +5,28 @@ class VoiceTranslator {
             status: document.getElementById('status'),
             recognized: document.getElementById('recognized'),
             translated: document.getElementById('translated'),
-            btnRu: document.getElementById('btnRu'),
-            btnLt: document.getElementById('btnLt')
+            btnTop: document.getElementById('btnTop'),
+            btnBottom: document.getElementById('btnBottom'),
+            btnTopLabel: document.getElementById('btnTopLabel'),
+            btnBottomLabel: document.getElementById('btnBottomLabel'),
+            pairSelector: document.getElementById('langPairSelector'),
+            dotSource: document.getElementById('dotSource'),
+            dotTarget: document.getElementById('dotTarget')
+        };
+
+        // Конфигурация языков
+        this.langConfig = {
+            'ru': { flag: '🇷🇺', name: 'RU', color: '#10b981' }, // Изумрудный
+            'lt': { flag: '🇱🇹', name: 'LT', color: '#3b82f6' }, // Сапфировый
+            'pl': { flag: '🇵🇱', name: 'PL', color: '#ef4444' }  // Красный
         };
 
         // Application State
         this.state = {
             isRecording: false,
             isPlayerUnlocked: false,
-            currentLang: 'ru',
+            currentSource: 'ru',
+            currentTarget: 'lt',
             recordStartTime: 0,
             ignoreRecording: false
         };
@@ -30,27 +43,51 @@ class VoiceTranslator {
     // Initialize application
     init() {
         this.bindEvents();
+        this.updateUIPair();
         this.initMicrophone();
     }
 
     // Bind UI events using modern Pointer API
     bindEvents() {
-        // Prevent default context menu on long press (especially for mobile devices)
-        [this.ui.btnRu, this.ui.btnLt].forEach(btn => {
+        // Слушаем изменение в выпадающем списке
+        this.ui.pairSelector.addEventListener('change', () => this.updateUIPair());
+
+        // Prevent default context menu on long press
+        [this.ui.btnTop, this.ui.btnBottom].forEach(btn => {
             btn.addEventListener('contextmenu', e => e.preventDefault());
         });
 
-        // Pointerdown replaces both mousedown and touchstart
-        this.ui.btnRu.addEventListener('pointerdown', (e) => this.startRecording('ru', e));
-        this.ui.btnLt.addEventListener('pointerdown', (e) => this.startRecording('lt', e));
+        // Кнопка 1 (Сверху вниз)
+        this.ui.btnTop.addEventListener('pointerdown', (e) => {
+            const [lang1, lang2] = this.ui.pairSelector.value.split('-');
+            this.startRecording(lang1, lang2, this.ui.btnTop, e);
+        });
 
-        // Listen for pointerup and pointercancel globally so we don't get stuck
-        // if the user drags their finger off the button before releasing
+        // Кнопка 2 (Снизу вверх)
+        this.ui.btnBottom.addEventListener('pointerdown', (e) => {
+            const [lang1, lang2] = this.ui.pairSelector.value.split('-');
+            this.startRecording(lang2, lang1, this.ui.btnBottom, e);
+        });
+
+        // Listen for pointerup globally
         window.addEventListener('pointerup', (e) => this.stopRecording(e));
         window.addEventListener('pointercancel', (e) => this.stopRecording(e));
     }
 
-    // Get device telemetry (static because it doesn't depend on class state)
+    // Обновляем текст и цвета кнопок при смене пары языков
+    updateUIPair() {
+        const [lang1, lang2] = this.ui.pairSelector.value.split('-');
+        const l1 = this.langConfig[lang1];
+        const l2 = this.langConfig[lang2];
+
+        this.ui.btnTopLabel.innerText = `${l1.flag} ${l1.name} ➔ ${l2.name}`;
+        this.ui.btnTop.style.setProperty('--current-color', l1.color);
+
+        this.ui.btnBottomLabel.innerText = `${l2.flag} ${l2.name} ➔ ${l1.name}`;
+        this.ui.btnBottom.style.setProperty('--current-color', l2.color);
+    }
+
+    // Get FULL device telemetry (Оригинальная версия)
     static async getTelemetryData() {
         let network = navigator.connection ? navigator.connection.effectiveType.toUpperCase() : 'UNKNOWN';
         let platform = 'Unknown OS';
@@ -92,7 +129,7 @@ class VoiceTranslator {
         return `📱 Model: ${platform} ${model}\n📶 Network: ${network}`;
     }
 
-    // Request microphone access without audio processing filters
+    // Request microphone access
     async initMicrophone() {
         try {
             const constraints = {
@@ -114,48 +151,45 @@ class VoiceTranslator {
     // Unlock audio context for iOS
     unlockAudioPlayer() {
         if (this.state.isPlayerUnlocked) return;
-
         this.globalPlayer.src = "data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA";
-        this.globalPlayer.play().catch(err => console.log("Audio unlock failed (likely normal behavior)", err));
+        this.globalPlayer.play().catch(err => console.log("Audio unlock failed", err));
         this.state.isPlayerUnlocked = true;
     }
 
     // Start recording process
-    async startRecording(lang, event) {
-        // Ignore multi-touch or secondary mouse buttons
+    async startRecording(sourceLang, targetLang, activeBtn, event) {
         if (event && !event.isPrimary) return;
-
         event.preventDefault();
         this.unlockAudioPlayer();
 
         if (this.state.isRecording) return;
 
-        // Wake up microphone if track ended (e.g., background sleep on mobile)
+        // Wake up microphone if needed
         if (!this.audioStream || !this.audioStream.active || this.audioStream.getAudioTracks()[0].readyState === 'ended') {
             this.updateStatus("Будим микрофон...");
             await this.initMicrophone();
             if (!this.audioStream) return;
         }
 
-        this.state.currentLang = lang;
+        this.state.currentSource = sourceLang;
+        this.state.currentTarget = targetLang;
         this.state.isRecording = true;
         this.state.ignoreRecording = false;
         this.state.recordStartTime = Date.now();
         this.audioChunks = [];
 
+        // Устанавливаем цвета точек у текста
+        this.ui.dotSource.style.color = this.langConfig[sourceLang].color;
+        this.ui.dotTarget.style.color = this.langConfig[targetLang].color;
+
         this.setupMediaRecorder();
         this.mediaRecorder.start();
 
-        // UI Updates
-        this.ui.btnRu.classList.remove('recording');
-        this.ui.btnLt.classList.remove('recording');
-        const activeBtn = lang === 'ru' ? this.ui.btnRu : this.ui.btnLt;
         activeBtn.classList.add('recording');
-
         this.updateStatus("Слушаю... Отпустите для перевода");
     }
 
-    // Configure MediaRecorder and handle data flow
+    // Configure MediaRecorder
     setupMediaRecorder() {
         let options = { audioBitsPerSecond: 128000 };
         let ext = 'webm';
@@ -183,12 +217,11 @@ class VoiceTranslator {
 
         const duration = Date.now() - this.state.recordStartTime;
 
-        // Prevent accidental clicks
         if (duration < 500) {
             this.state.ignoreRecording = true;
             this.updateStatus("Слишком короткое нажатие");
             setTimeout(() => {
-                if (!this.state.isRecording) this.updateStatus("Зажмите кнопку нужного языка");
+                if (!this.state.isRecording) this.updateStatus("Зажмите кнопку для перевода");
             }, 1500);
         }
 
@@ -196,12 +229,12 @@ class VoiceTranslator {
             this.mediaRecorder.stop();
         }
 
-        this.ui.btnRu.classList.remove('recording');
-        this.ui.btnLt.classList.remove('recording');
+        this.ui.btnTop.classList.remove('recording');
+        this.ui.btnBottom.classList.remove('recording');
         this.state.isRecording = false;
     }
 
-    // Send audio to backend and handle response
+    // Send audio to backend
     async processAudio(ext, options) {
         if (this.state.ignoreRecording) {
             this.audioChunks = [];
@@ -214,7 +247,8 @@ class VoiceTranslator {
 
         const formData = new FormData();
         formData.append('audio', audioBlob, `record.${ext}`);
-        formData.append('source_lang', this.state.currentLang);
+        formData.append('source_lang', this.state.currentSource);
+        formData.append('target_lang', this.state.currentTarget); // Отправляем целевой язык
 
         const telemetry = await VoiceTranslator.getTelemetryData();
         formData.append('device_info', telemetry);
@@ -237,13 +271,12 @@ class VoiceTranslator {
         }
     }
 
-    // Helper to centralize status updates
     updateStatus(message) {
         this.ui.status.innerText = message;
     }
 }
 
-// Initialize application when DOM is ready
+// Initialize application
 document.addEventListener('DOMContentLoaded', () => {
     window.app = new VoiceTranslator();
 });

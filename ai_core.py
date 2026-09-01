@@ -17,15 +17,23 @@ CRITICAL INSTRUCTIONS:
 
 PROMPT_RU = "Привет! Проверка связи. Рату базе, шиномонтаж. Вызываю один два три. Доброе утро."
 PROMPT_LT = "Labas rytas. Ratų bazė. Padangų montavimas. Patikrinam ryšį. Ačiū."
+PROMPT_PL = "Dzień dobry. Serwis opon, wymiana kół. Słucham, dziękuję. Ile to kosztuje?"
 
-VOICE_MAP = {"lt": "lt-LT-LeonasNeural", "ru": "ru-RU-DmitryNeural"}
+VOICE_MAP = {
+	"lt": "lt-LT-LeonasNeural",
+	"ru": "ru-RU-DmitryNeural",
+	"pl": "pl-PL-MarekNeural"
+}
+
 HALLUCINATIONS = ["продолжение следует", "подписывайтесь на канал", "to be continued", "amara.org",
                   "спасибо за просмотр", "dėkis"]
 
 
 async def transcribe_audio(audio_bytes, file_name, content_type, source_lang):
 	"""Распознает звук от любого источника (Web/PBX)."""
-	current_prompt = PROMPT_RU if source_lang == "ru" else PROMPT_LT
+	prompts = {"ru": PROMPT_RU, "lt": PROMPT_LT, "pl": PROMPT_PL}
+	current_prompt = prompts.get(source_lang, PROMPT_RU)
+
 	try:
 		res = await groq_client.audio.transcriptions.create(
 			file=(file_name, audio_bytes, content_type),
@@ -38,7 +46,7 @@ async def transcribe_audio(audio_bytes, file_name, content_type, source_lang):
 		lower_text = text.lower().strip('.?!, ')
 
 		if not lower_text or any(h in lower_text for h in HALLUCINATIONS) or lower_text in ["ačiū", "спасибо", "привет",
-		                                                                                    "labas"]:
+		                                                                                    "labas", "dzięki"]:
 			return "[Тишина / Шум]", True
 
 		return text, False
@@ -48,7 +56,7 @@ async def transcribe_audio(audio_bytes, file_name, content_type, source_lang):
 
 
 async def translate_and_fix(raw_text, source_lang):
-	"""LLM исправляет ошибки и переводит."""
+	"""LLM исправляет ошибки и переводит (Только для PBX)."""
 	try:
 		res = await groq_client.chat.completions.create(
 			model="openai/gpt-oss-120b",
@@ -64,9 +72,33 @@ async def translate_and_fix(raw_text, source_lang):
 		return "[LLM Error]"
 
 
+async def web_translate_and_fix(raw_text, source_lang, target_lang):
+	"""Универсальный LLM переводчик для WEB-интерфейса (Любые пары)."""
+	web_system_prompt = f"""You are an elite, ultra-fast speech translator.
+CRITICAL INSTRUCTIONS:
+1. CONTEXT: Automotive service, tire replacement (RATŲ BAZĖ). Expect noisy audio.
+2. Translate the text strictly from {source_lang.upper()} to {target_lang.upper()}.
+3. GRAMMAR STRICTNESS: Ensure absolute grammatical perfection and natural phrasing.
+4. Output ONLY the final translated text. No explanations."""
+
+	try:
+		res = await groq_client.chat.completions.create(
+			model="openai/gpt-oss-120b",
+			messages=[
+				{"role": "system", "content": web_system_prompt},
+				{"role": "user", "content": f"Source text: {raw_text}"}
+			],
+			temperature=0.2
+		)
+		return res.choices[0].message.content.strip()
+	except Exception as e:
+		print(f"WEB LLM Error: {e}")
+		return "[LLM Error]"
+
+
 async def generate_speech(text, target_lang):
 	"""Генерирует MP3 поток через Edge-TTS."""
-	selected_voice = VOICE_MAP[target_lang]
+	selected_voice = VOICE_MAP.get(target_lang, "ru-RU-DmitryNeural")
 	audio_stream = io.BytesIO()
 
 	for attempt in range(3):
@@ -88,7 +120,6 @@ async def generate_speech(text, target_lang):
 async def detect_language_audio(audio_bytes, file_name, content_type):
 	"""Определяет язык по транскрипции текста (поиск ключевых слов)."""
 	try:
-		# МАКСИМАЛЬНЫЙ КОНТЕКСТ ДЛЯ ИИ (Приветствия + Типичные фразы автосервиса)
 		greetings_prompt = (
 			"Taip, klausau. Labas rytas, laba diena, labas vakaras. "
 			"Sveiki, skambinu dėl padangų, ratų bazė. Noriu paklausti, kiek kainuoja, "
@@ -106,25 +137,15 @@ async def detect_language_audio(audio_bytes, file_name, content_type):
 		text = res.lower().strip('.?!, ')
 		print(f"🕵️ [DETECTOR] Whisper услышал текст: '{text}'")
 
-		# РАСШИРЕННЫЙ СЛОВАРЬ (Только 100% литовские корни)
 		lt_keywords = [
-			# Приветствия
 			"laba", "labas", "sveiki", "rytas", "vakaras", "diena", "klausau", "taip", "klausome",
-
-			# Действия и вопросы клиента
 			"skambinu", "skambin", "skelbimą", "skelbimo", "skelbima",
 			"noriu", "paklausti", "užsiregistruoti", "registruotis",
 			"kainuoja", "kaina", "laiko", "laikas", "kada",
-
-			# Автомобильная тематика RATŲ BAZĖ
 			"padangų", "padangas", "padangu", "ratų", "ratu", "baze",
 			"keitimas", "pakeisti", "montavimas", "tepalai", "tepalų", "stabdžių",
-
-			# Наши любимые транслитерации
 			"лаба", "лабас", "свейки", "ритас", "вакарас", "клаусау",
 			"скамбиню", "скамбин", "падангу", "секи", "дэл",
-
-			# Золотой фонд галлюцинаций
 			"zvi'et kem", "zveiki", "zdaj", "skenil", "pogovke", "звуки", "благослови", "каменью", "подуньгу",
 			"vamos a ver", "vamos"
 		]

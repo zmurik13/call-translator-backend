@@ -8,9 +8,12 @@
     --panel-bg: rgba(30, 41, 59, 0.6);
     --text-main: #f8fafc;
     --text-muted: #94a3b8;
-    --accent-ru: #10b981; /* Изумрудный для RU */
-    --accent-lt: #3b82f6; /* Сапфировый для LT */
     --glass-border: rgba(255, 255, 255, 0.08);
+
+    /* Цвета для языков */
+    --color-ru: #10b981; /* Изумрудный для RU */
+    --color-lt: #3b82f6; /* Сапфировый для LT */
+    --color-pl: #ef4444; /* Красный для PL */
 }
 
 body {
@@ -37,17 +40,29 @@ body {
     -webkit-backdrop-filter: blur(12px);
 }
 
-.header h2 {
-    margin: 0;
+.pair-selector {
+    background: var(--panel-bg);
+    color: white;
+    border: 1px solid var(--glass-border);
+    padding: 10px 20px;
+    border-radius: 12px;
+    font-size: 1.2rem;
     font-weight: 600;
-    letter-spacing: 0.5px;
-    font-size: 1.5rem;
+    outline: none;
+    cursor: pointer;
+    appearance: none;
+    text-align: center;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+}
+
+.pair-selector:focus {
+    border-color: rgba(255,255,255,0.3);
 }
 
 #status {
     font-size: 0.9em;
     color: var(--text-muted);
-    margin-top: 8px;
+    margin-top: 12px;
     font-weight: 500;
 }
 
@@ -82,12 +97,11 @@ body {
     outline: none;
     user-select: none;
     -webkit-user-select: none;
-
-    /* 🔴 КРИТИЧНО ДЛЯ POINTER EVENTS (JS) - Блокируем скролл по кнопке */
-    touch-action: none;
-
-    /* 🔴 УБИРАЕМ СЕРЫЙ/СИНИЙ КВАДРАТ ПРИ ТАПЕ НА IOS/ANDROID */
+    touch-action: none; /* КРИТИЧНО ДЛЯ JS - Блокируем скролл по кнопке */
     -webkit-tap-highlight-color: transparent;
+
+    /* Динамическая нижняя рамка (задается через JS) */
+    border-bottom: 4px solid var(--current-color, #fff);
 }
 
 .btn span {
@@ -96,9 +110,6 @@ body {
     font-weight: 400;
 }
 
-#btnRu { border-bottom: 4px solid var(--accent-ru); }
-#btnLt { border-bottom: 4px solid var(--accent-lt); }
-
 /* Эффект физического нажатия */
 .btn:active {
     transform: translateY(6px);
@@ -106,29 +117,17 @@ body {
     margin-bottom: 4px;
 }
 
-/* Анимация при записи (когда JS добавляет класс .recording) */
-.btn.recording#btnRu {
-    background: rgba(16, 185, 129, 0.15);
-    border-color: var(--accent-ru);
-    animation: pulse-ru 1.5s infinite;
+/* Анимация при записи */
+.btn.recording {
+    background: rgba(255, 255, 255, 0.05);
+    border-color: var(--current-color);
+    animation: pulse-dynamic 1.5s infinite;
 }
 
-.btn.recording#btnLt {
-    background: rgba(59, 130, 246, 0.15);
-    border-color: var(--accent-lt);
-    animation: pulse-lt 1.5s infinite;
-}
-
-@keyframes pulse-ru {
-    0% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.4); }
-    70% { box-shadow: 0 0 0 20px rgba(16, 185, 129, 0); }
-    100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
-}
-
-@keyframes pulse-lt {
-    0% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.4); }
-    70% { box-shadow: 0 0 0 20px rgba(59, 130, 246, 0); }
-    100% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0); }
+@keyframes pulse-dynamic {
+    0% { box-shadow: 0 0 0 0 var(--current-color); }
+    70% { box-shadow: 0 0 0 20px rgba(0,0,0,0); }
+    100% { box-shadow: 0 0 0 0 rgba(0,0,0,0); }
 }
 
 /* Панели с текстом */
@@ -156,9 +155,6 @@ body {
     gap: 8px;
 }
 
-.dot-ru { color: var(--accent-ru); font-size: 1.2em; }
-.dot-lt { color: var(--accent-lt); font-size: 1.2em; }
-
 #recognized {
     margin-top: 10px;
     color: #cbd5e1;
@@ -175,5 +171,4 @@ body {
     text-shadow: 0 0 20px rgba(255,255,255,0.1);
 }
 
-/* Убираем отступы на самом последнем элементе, чтобы не было лишнего скролла. */
 .text-box:last-child { margin-bottom: 40px; }
