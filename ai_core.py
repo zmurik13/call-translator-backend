@@ -88,28 +88,26 @@ async def generate_speech(text, target_lang):
 async def detect_language_audio(audio_bytes, file_name, content_type):
     """Определяет язык по транскрипции текста (поиск ключевых слов)."""
     try:
-       # Двуязычная подсказка, чтобы ИИ был готов к обоим языкам
-       greetings_prompt = "Sveiki, laba diena, skambinu pagal skelbimą. Здравствуйте, добрый день, звоню по объявлению."
+       # Меняем шпаргалку под новые реалии
+       greetings_prompt = "Taip, klausau. Да, слушаю вас."
 
-       # УБИРАЕМ language="lt", разрешаем Whisper'у самому думать!
+       # ИСПОЛЬЗУЕМ TURBO МОДЕЛЬ (она быстрее и меньше фантазирует)
        res = await groq_client.audio.transcriptions.create(
           file=(file_name, audio_bytes, content_type),
-          model="whisper-large-v3",
+          model="whisper-large-v3-turbo",  # <--- Сменили модель!
           prompt=greetings_prompt,
           response_format="text"
        )
 
        text = res.lower().strip('.?!, ')
-       print(f"🕵️ [DETECTOR] Whisper услышал текст: '{text}'")
+       print(f"🕵️ [DETECTOR] Whisper Turbo услышал текст: '{text}'")
 
-       # Наша великая стена: латиница, кириллические мутанты и словенский бред
+       # Наш словарь-капкан
        lt_keywords = [
-           # Чистый литовский
-           "laba", "labas", "sveiki", "rytas", "vakaras", "klausau", "taip", "klausome", "skambinu", "skelbimą", "skelbimo", "skelbima",
-           # Если ИИ услышит литовский, но напишет кириллицей (как было с "лаба")
+           "laba", "labas", "sveiki", "rytas", "vakaras", "klausau", "taip", "klausome",
+           "skambinu", "skelbimą", "skelbimo", "skelbima",
            "лаба", "лабас", "свейки", "ритас", "вакарас", "клаусау",
-           # Наши любимые глюки на коротких звуках
-           "zvi'et kem", "zveiki", "zdaj", "skenil", "pogovke"
+           "zvi'et kem", "zveiki", "zdaj", "skenil", "pogovke", "звуки" # Оставили коллекцию багов на всякий случай
        ]
 
        if any(word in text for word in lt_keywords):
