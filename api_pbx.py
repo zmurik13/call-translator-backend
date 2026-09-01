@@ -3,7 +3,6 @@ from fastapi import APIRouter, UploadFile, File, Form, BackgroundTasks
 from fastapi.responses import PlainTextResponse
 import ai_core
 from utils import send_discord_alert
-from fastapi import BackgroundTasks
 from datetime import datetime
 import zoneinfo
 
@@ -34,10 +33,11 @@ async def pbx_detect_language(
 
 	print(f"\n🎧 [DETECT] Звонок от {caller_id}. Аудио для анализа ({len(audio_bytes)} байт)...")
 
-	# Прогоняем через наш детектор
-	lang = await ai_core.detect_language_audio(audio_bytes, "detect.wav", "audio/wav")
+	# Прогоняем через наш детектор (ловим язык и текст)
+	lang, transcription = await ai_core.detect_language_audio(audio_bytes, "detect.wav", "audio/wav")
 
 	print(f"✅ [DETECT] Нейросеть приняла решение (Звонок {caller_id}): {lang}")
+	print(f"✅ [DETECT] Текст клиента: '{transcription}'")
 
 	# ===== SMART DISCORD LOGGING =====
 	action_text = "Routing to Manager (SIP 101)" if lang == "RU" else "Starting AI Translator"
@@ -51,7 +51,8 @@ async def pbx_detect_language(
 		f"🕒 **Time:** `{current_time}`\n"
 		f"📱 **Caller:** `{caller_id}`\n"
 		f"🗣️ **Detected Language:** `{lang}`\n"
-		f"⚙️ **Action:** {action_text}"
+		f"⚙️ **Action:** {action_text}\n"
+		f"📝 **Текст:** *{transcription}*"
 	)
 
 	background_tasks.add_task(send_discord_alert, "🔀 Smart Call Routing", msg, color)

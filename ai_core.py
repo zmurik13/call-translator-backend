@@ -131,11 +131,11 @@ async def detect_language_audio(audio_bytes, file_name, content_type):
 
 		if any(word in text for word in lt_keywords):
 			print("✅ [DETECTOR] Найдены литовские маркеры -> LT")
-			return "LT"
+			return "LT", text
 
 		print("✅ [DETECTOR] Литовских слов нет -> RU (по умолчанию)")
-		return "RU"
+		return "RU", text
 
 	except Exception as e:
 		print(f"❌ [DETECTOR] Ошибка: {e}")
-		return "RU"
+		return "RU", ""
