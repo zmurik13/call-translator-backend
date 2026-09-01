@@ -86,40 +86,56 @@ async def generate_speech(text, target_lang):
 
 
 async def detect_language_audio(audio_bytes, file_name, content_type):
-    """Определяет язык по транскрипции текста (поиск ключевых слов)."""
-    try:
-       # УБРАЛИ РУССКИЙ ИЗ ПОДСКАЗКИ! Оставляем только литовский.
-       greetings_prompt = "Taip, klausau. Sveiki, skambinu dėl padangų, ratų bazė."
+	"""Определяет язык по транскрипции текста (поиск ключевых слов)."""
+	try:
+		# МАКСИМАЛЬНЫЙ КОНТЕКСТ ДЛЯ ИИ (Приветствия + Типичные фразы автосервиса)
+		greetings_prompt = (
+			"Taip, klausau. Labas rytas, laba diena, labas vakaras. "
+			"Sveiki, skambinu dėl padangų, ratų bazė. Noriu paklausti, kiek kainuoja, "
+			"ar turite laisvo laiko, noriu užsiregistruoti, pakeisti."
+		)
 
-       res = await groq_client.audio.transcriptions.create(
-          file=(file_name, audio_bytes, content_type),
-          model="whisper-large-v3",
-          prompt=greetings_prompt,
-          temperature=0.0,
-          response_format="text"
-       )
+		res = await groq_client.audio.transcriptions.create(
+			file=(file_name, audio_bytes, content_type),
+			model="whisper-large-v3",
+			prompt=greetings_prompt,
+			temperature=0.0,
+			response_format="text"
+		)
 
-       text = res.lower().strip('.?!, ')
-       print(f"🕵️ [DETECTOR] Whisper услышал текст: '{text}'")
+		text = res.lower().strip('.?!, ')
+		print(f"🕵️ [DETECTOR] Whisper услышал текст: '{text}'")
 
-       lt_keywords = [
-           "laba", "labas", "sveiki", "rytas", "vakaras", "klausau", "taip", "klausome",
-           "skambinu", "skelbimą", "skelbimo", "skelbima",
-           "padangų", "padangas", "padangu", "ratų", "baze",
-           # Кириллические транслитерации (когда ИИ пишет литовский русскими буквами)
-           "лаба", "лабас", "свейки", "ритас", "вакарас", "клаусау",
-           "скамбиню", "скамбин", "падангу", "секи", "дэл",
-           # Музей ИИ-галлюцинаций
-           "zvi'et kem", "zveiki", "zdaj", "skenil", "pogovke", "звуки", "благослови", "каменью", "подуньгу"
-       ]
+		# РАСШИРЕННЫЙ СЛОВАРЬ (Только 100% литовские корни)
+		lt_keywords = [
+			# Приветствия
+			"laba", "labas", "sveiki", "rytas", "vakaras", "diena", "klausau", "taip", "klausome",
 
-       if any(word in text for word in lt_keywords):
-          print("✅ [DETECTOR] Найдены литовские маркеры -> LT")
-          return "LT"
+			# Действия и вопросы клиента
+			"skambinu", "skambin", "skelbimą", "skelbimo", "skelbima",
+			"noriu", "paklausti", "užsiregistruoti", "registruotis",
+			"kainuoja", "kaina", "laiko", "laikas", "kada",
 
-       print("✅ [DETECTOR] Литовских слов нет -> RU (по умолчанию)")
-       return "RU"
+			# Автомобильная тематика RATŲ BAZĖ
+			"padangų", "padangas", "padangu", "ratų", "ratu", "baze",
+			"keitimas", "pakeisti", "montavimas", "tepalai", "tepalų", "stabdžių",
 
-    except Exception as e:
-       print(f"❌ [DETECTOR] Ошибка: {e}")
-       return "RU"
+			# Наши любимые транслитерации
+			"лаба", "лабас", "свейки", "ритас", "вакарас", "клаусау",
+			"скамбиню", "скамбин", "падангу", "секи", "дэл",
+
+			# Золотой фонд галлюцинаций
+			"zvi'et kem", "zveiki", "zdaj", "skenil", "pogovke", "звуки", "благослови", "каменью", "подуньгу",
+			"vamos a ver", "vamos"
+		]
+
+		if any(word in text for word in lt_keywords):
+			print("✅ [DETECTOR] Найдены литовские маркеры -> LT")
+			return "LT"
+
+		print("✅ [DETECTOR] Литовских слов нет -> RU (по умолчанию)")
+		return "RU"
+
+	except Exception as e:
+		print(f"❌ [DETECTOR] Ошибка: {e}")
+		return "RU"
