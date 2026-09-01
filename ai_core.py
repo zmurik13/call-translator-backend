@@ -98,7 +98,14 @@ CRITICAL INSTRUCTIONS:
 
 async def generate_speech(text, target_lang):
 	"""Генерирует MP3 поток через Edge-TTS."""
+	# Получаем нужный голос
 	selected_voice = VOICE_MAP.get(target_lang, "ru-RU-DmitryNeural")
+
+	# === ВОТ НАШ ХАК ===
+	# Добавляем троеточие в начало, чтобы плеер/наушники успели проснуться
+	text = f"... {text}"
+	# ===================
+
 	audio_stream = io.BytesIO()
 
 	for attempt in range(3):
