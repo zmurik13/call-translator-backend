@@ -88,27 +88,28 @@ async def generate_speech(text, target_lang):
 async def detect_language_audio(audio_bytes, file_name, content_type):
     """Определяет язык по транскрипции текста (поиск ключевых слов)."""
     try:
-       # Даем ИИ жесткий бизнес-контекст (Шиномонтаж / Автосервис)
-       greetings_prompt = "Taip, klausau. Sveiki, skambinu dėl padangų, ratų bazė. Здравствуйте, звоню по поводу шин."
+       # УБРАЛИ РУССКИЙ ИЗ ПОДСКАЗКИ! Оставляем только литовский.
+       greetings_prompt = "Taip, klausau. Sveiki, skambinu dėl padangų, ratų bazė."
 
        res = await groq_client.audio.transcriptions.create(
           file=(file_name, audio_bytes, content_type),
           model="whisper-large-v3",
           prompt=greetings_prompt,
-          temperature=0.0,  # <--- КРИТИЧЕСКИ ВАЖНО! Убиваем креативность в 0, чтобы не писал стихи!
+          temperature=0.0,
           response_format="text"
        )
 
        text = res.lower().strip('.?!, ')
        print(f"🕵️ [DETECTOR] Whisper услышал текст: '{text}'")
 
-       # Добавляем шинную тематику в наш словарь
        lt_keywords = [
            "laba", "labas", "sveiki", "rytas", "vakaras", "klausau", "taip", "klausome",
            "skambinu", "skelbimą", "skelbimo", "skelbima",
-           "padangų", "padangas", "padangu", "ratų", "baze", # <--- Контекст RATŲ BAZĖ
+           "padangų", "padangas", "padangu", "ratų", "baze",
+           # Кириллические транслитерации (когда ИИ пишет литовский русскими буквами)
            "лаба", "лабас", "свейки", "ритас", "вакарас", "клаусау",
-           # Музей великих цитат (оставляем для надежности)
+           "скамбиню", "скамбин", "падангу", "секи", "дэл",
+           # Музей ИИ-галлюцинаций
            "zvi'et kem", "zveiki", "zdaj", "skenil", "pogovke", "звуки", "благослови", "каменью", "подуньгу"
        ]
 
