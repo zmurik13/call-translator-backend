@@ -20,15 +20,14 @@ or_client = AsyncOpenAI(
 )
 
 # === КОНСТАНТЫ И ПРОМПТЫ ===
-# ДОБАВЛЕНО ПРАВИЛО: НИКАКИХ ИЗВИНЕНИЙ!
-SYSTEM_PROMPT = """You are an elite, ultra-fast speech translator (RU <-> LT).
+SYSTEM_PROMPT = """You are an elite, ultra-fast speech translator (RU <-> LT) for an automotive tire service (RATŲ BAZĖ).
 CRITICAL INSTRUCTIONS:
-1. CONTEXTUAL RECONSTRUCTION: Input might come from noisy phone lines or web mics. Expect phonetic hallucinations. Reconstruct the logical intended phrase based on context before translating.
-2. Translate the corrected meaning to the OTHER language (If input is Russian -> Lithuanian. If input is Lithuanian -> Russian).
-3. GRAMMAR STRICTNESS: Ensure absolute grammatical perfection and natural phrasing.
-4. PUNCTUATION FOR TTS: Apply flawless punctuation (periods, commas, question marks).
-5. Output ONLY the final translated text. No explanations, no quotes.
-6. ANTI-APOLOGY RULE: NEVER apologize. NEVER say "I cannot help", "I cannot translate", or "Sorry". If the input is complete gibberish or noise, output an empty string."""
+1. TRANSLATE EVERYTHING LITERALLY: Even if the user talks about food, weather, or unrelated topics, translate it accurately. Do not force the tire context if the words mean something else.
+2. CONTEXTUAL RECONSTRUCTION: Input might come from noisy phone lines. Reconstruct the logical phrase before translating.
+3. Translate the corrected meaning to the OTHER language (If input is Russian -> Lithuanian. If input is Lithuanian -> Russian).
+4. GRAMMAR STRICTNESS: Ensure absolute grammatical perfection.
+5. Output ONLY the final translated text. No explanations.
+6. ANTI-APOLOGY RULE: NEVER apologize or say "I cannot help". If the input is complete gibberish or noise, output an empty string."""
 
 VOICE_MAP = {
 	"lt": "lt-LT-LeonasNeural",
@@ -36,8 +35,7 @@ VOICE_MAP = {
 	"pl": "pl-PL-MarekNeural"
 }
 
-# Мы убрали одиночные слова (спасибо, привет) из галлюцинаций,
-# потому что Deepgram слышит их четко и не додумывает лишнего.
+# Оставили только жесткие галлюцинации. Короткие слова теперь разрешены.
 HALLUCINATIONS = ["продолжение следует", "подписывайтесь на канал", "to be continued", "amara.org",
                   "спасибо за просмотр"]
 
@@ -51,21 +49,18 @@ async def _call_llm(messages, temperature=0.2):
 			messages=messages,
 			temperature=temperature
 		)
-		# Безопасно получаем контент. Если он None (пустота), возвращаем пустую строку ""
 		content = res.choices[0].message.content
 		return content.strip() if content else ""
-
 	except Exception as e:
 		print(f"⚠️ [LLM] gpt-4o-mini не ответил ({e}). Переключаюсь на Gemini Flash...")
 		try:
 			res = await or_client.chat.completions.create(
-				model="google/gemini-flash-1.5",  # <-- Исправленный ID модели
+				model="google/gemini-flash-1.5",
 				messages=messages,
 				temperature=temperature
 			)
 			content = res.choices[0].message.content
 			return content.strip() if content else ""
-
 		except Exception as fallback_err:
 			print(f"❌ [LLM] Ошибка обоих LLM-моделей: {fallback_err}")
 			return "[LLM Error]"
@@ -74,10 +69,10 @@ async def _call_llm(messages, temperature=0.2):
 # === ФУНКЦИИ ЯДРА ===
 
 async def transcribe_audio(audio_bytes, file_name, content_type, source_lang):
-	"""Идеальные уши от Deepgram Nova-3 (без галлюцинаций Whisper'а)."""
+	"""Идеальные уши от Deepgram Nova-3. Сверхчувствительный режим (ловит короткие слова)."""
 	try:
-		# Deepgram ест аудио напрямую через молниеносный REST API
-		url = f"https://api.deepgram.com/v1/listen?model=nova-3&smart_format=true&language={source_lang}"
+		# dictation=true и filler_words=true запрещают Deepgram игнорировать короткие звуки
+		url = f"https://api.deepgram.com/v1/listen?model=nova-3&smart_format=true&language={source_lang}&dictation=true&filler_words=true"
 		headers = {
 			"Authorization": f"Token {DEEPGRAM_API_KEY}",
 			"Content-Type": content_type or "audio/wav"
@@ -94,6 +89,7 @@ async def transcribe_audio(audio_bytes, file_name, content_type, source_lang):
 
 				lower_text = text.lower().strip('.?!, ')
 
+				# Блокируем только откровенные галлюцинации и полную тишину
 				if not lower_text or any(h in lower_text for h in HALLUCINATIONS):
 					return "[Тишина / Шум]", True
 
@@ -116,11 +112,10 @@ async def web_translate_and_fix(raw_text, source_lang, target_lang):
 	"""Универсальный LLM переводчик для WEB."""
 	web_system_prompt = f"""You are an elite, ultra-fast speech translator.
 CRITICAL INSTRUCTIONS:
-1. CONTEXT: Automotive service, tire replacement (RATŲ BAZĖ). Expect noisy audio.
-2. Translate the text strictly from {source_lang.upper()} to {target_lang.upper()}.
-3. GRAMMAR STRICTNESS: Ensure absolute grammatical perfection and natural phrasing.
-4. Output ONLY the final translated text. No explanations.
-5. ANTI-APOLOGY RULE: NEVER apologize. If the input is complete gibberish, output an empty string."""
+1. You work at RATŲ BAZĖ, but YOU MUST TRANSLATE EVERYTHING LITERALLY, even if the user talks about food, weather, or unrelated topics. Do not force the tire context if the words mean something else.
+2. Translate strictly from {source_lang.upper()} to {target_lang.upper()}. Beware of false friends (e.g., LT 'man' means 'to me', not 'adult male').
+3. Output ONLY the final translated text. No explanations.
+4. ANTI-APOLOGY RULE: NEVER apologize. If the input is complete gibberish, output an empty string."""
 
 	messages = [
 		{"role": "system", "content": web_system_prompt},
@@ -159,10 +154,11 @@ async def generate_speech(text, target_lang):
 
 
 async def detect_language_audio(audio_bytes, file_name, content_type):
-	"""Детектор языка: уши от Deepgram (detect_language=true), мозги от OpenRouter."""
+	"""Детектор языка: Deepgram (Литовский режим/Транслит) + GPT-4o-mini."""
 	try:
-		# 1. STT: Слушаем через Deepgram с включенным автоопределением языка!
-		url = "https://api.deepgram.com/v1/listen?model=nova-3&smart_format=true&detect_language=true"
+		# УБРАЛИ detect_language=true! ЖЕСТКО ставим language=lt.
+		# Пусть пишет русский транслитом, LLM сама разберется, и никаких испанских галлюцинаций.
+		url = "https://api.deepgram.com/v1/listen?model=nova-3&smart_format=true&language=lt"
 		headers = {
 			"Authorization": f"Token {DEEPGRAM_API_KEY}",
 			"Content-Type": content_type or "audio/wav"
@@ -184,18 +180,16 @@ async def detect_language_audio(audio_bytes, file_name, content_type):
 		# 2. LLM MAGIC: Классифицируем
 		classifier_prompt = f"""You are a language detection router for an auto service in Lithuania.
 Analyze the following transcription: "{raw_text}"
-
 Instructions:
-- The text might contain phonetic hallucinations, weird translations, or Cyrillic transliterations.
+- The text might be Lithuanian OR Russian written in Latin letters (e.g., 'zdrastvuite').
 - If it sounds like Lithuanian phonetics or has clear Lithuanian context, return 'LT'.
-- Otherwise, return 'RU'.
+- If it is Russian (even if transliterated), return 'RU'.
 - Output ONLY TWO LETTERS: LT or RU. Do not explain anything."""
 
 		messages = [{"role": "user", "content": classifier_prompt}]
 		lang_decision = await _call_llm(messages, temperature=0.0)
-		lang_decision = lang_decision.upper()
 
-		if "LT" in lang_decision:
+		if "LT" in lang_decision.upper():
 			print(f"✅ [DETECTOR] LLM постановила: LT (Анализ текста: {raw_text})")
 			return "LT", raw_text
 		else:
