@@ -125,8 +125,9 @@ async def generate_speech(text, target_lang):
 
 
 async def detect_language_audio(audio_bytes, file_name, content_type):
-	"""Определяет язык по транскрипции текста (поиск ключевых слов)."""
+	"""Определяет язык с помощью транскрипции Whisper и умного LLM-классификатора."""
 	try:
+		# 1. STT: Слушаем, что сказали (оставляем старый добрый Whisper)
 		greetings_prompt = (
 			"Taip, klausau. Labas rytas, laba diena, labas vakaras. "
 			"Sveiki, skambinu dėl padangų, ratų bazė. Noriu paklausti, kiek kainuoja, "
@@ -141,28 +142,38 @@ async def detect_language_audio(audio_bytes, file_name, content_type):
 			response_format="text"
 		)
 
-		text = res.lower().strip('.?!, ')
-		print(f"🕵️ [DETECTOR] Whisper услышал текст: '{text}'")
+		raw_text = res.strip()
+		print(f"🕵️ [DETECTOR] Whisper услышал текст: '{raw_text}'")
 
-		lt_keywords = [
-			"laba", "labas", "sveiki", "rytas", "vakaras", "diena", "klausau", "taip", "klausome",
-			"skambinu", "skambin", "skelbimą", "skelbimo", "skelbima",
-			"noriu", "paklausti", "užsiregistruoti", "registruotis",
-			"kainuoja", "kaina", "laiko", "laikas", "kada",
-			"padangų", "padangas", "padangu", "ratų", "ratu", "baze",
-			"keitimas", "pakeisti", "montavimas", "tepalai", "tepalų", "stabdžių",
-			"лаба", "лабас", "свейки", "ритас", "вакарас", "клаусау",
-			"скамбиню", "скамбин", "падангу", "секи", "дэл",
-			"zvi'et kem", "zveiki", "zdaj", "skenil", "pogovke", "звуки", "благослови", "каменью", "подуньгу",
-			"vamos a ver", "vamos"
-		]
+		# Если прилетела абсолютная тишина — кидаем на менеджера
+		if not raw_text:
+			return "RU", "[Тишина / Шум]"
 
-		if any(word in text for word in lt_keywords):
-			print("✅ [DETECTOR] Найдены литовские маркеры -> LT")
-			return "LT", text
+		# 2. LLM MAGIC: Отправляем текст на классификацию
+		classifier_prompt = f"""You are a language detection router for an auto service in Lithuania.
+Analyze the following transcription: "{raw_text}"
 
-		print("✅ [DETECTOR] Литовских слов нет -> RU (по умолчанию)")
-		return "RU", text
+Instructions:
+- The text might contain phonetic hallucinations, weird translations, or Cyrillic transliterations (e.g., 'свеики', 'скандинув', 'лабас' sounds like 'sveiki, skambinu, labas').
+- If it sounds like Lithuanian phonetics (even written in Cyrillic) or has clear Lithuanian context, return 'LT'.
+- Otherwise, return 'RU'.
+- Output ONLY TWO LETTERS: LT or RU. Do not explain anything."""
+
+		classification_res = await groq_client.chat.completions.create(
+			model="llama3-8b-8192",  # Легкая и молниеносная модель
+			messages=[{"role": "user", "content": classifier_prompt}],
+			temperature=0.0  # Отключаем креативность, нам нужна суровая логика
+		)
+
+		# Чистим ответ, чтобы точно получить только LT или RU
+		lang_decision = classification_res.choices[0].message.content.strip().upper()
+
+		if "LT" in lang_decision:
+			print(f"✅ [DETECTOR] LLM постановила: LT (Анализ текста: {raw_text})")
+			return "LT", raw_text
+		else:
+			print(f"✅ [DETECTOR] LLM постановила: RU (Анализ текста: {raw_text})")
+			return "RU", raw_text
 
 	except Exception as e:
 		print(f"❌ [DETECTOR] Ошибка: {e}")
