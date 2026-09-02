@@ -7,17 +7,16 @@ from openai import AsyncOpenAI
 import edge_tts
 
 # === ЗАГРУЗКА .ENV ===
-# Ищет файл .env в папке и принудительно загружает ключи
 load_dotenv()
 
 # === API КЛЮЧИ И КЛИЕНТЫ ===
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
 OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
 
-# Уши (STT) - Возвращаем бесплатный и быстрый Groq
+# Уши (STT) - Используем Groq для мгновенного бесплатного распознавания
 groq_client = AsyncGroq(api_key=GROQ_API_KEY) if GROQ_API_KEY else None
 
-# Мозги (LLM) - Направляем клиента OpenAI в OpenRouter
+# Мозги (LLM) - Направляем клиента OpenAI в шлюз OpenRouter
 or_client = AsyncOpenAI(
     base_url="https://openrouter.ai/api/v1",
     api_key=OPENROUTER_API_KEY,
@@ -47,19 +46,19 @@ HALLUCINATIONS = ["продолжение следует", "подписывай
 
 # === УМНЫЙ РОУТЕР LLM С ЗАПАСКОЙ ===
 async def _call_llm(messages, temperature=0.2):
-    """Вызывает стабильную Llama 3 через Groq API."""
+    """Вызывает GPT-4o-mini. При любой ошибке бесшовно переключается на Gemini Flash."""
     try:
-        res = await groq_client.chat.completions.create(
-            model="llama3-8b-8192",  # <-- Стабильная базовая модель Groq
+        res = await or_client.chat.completions.create(
+            model="openai/gpt-4o-mini",  # <-- ТОП 1 по соотношению цена/качество
             messages=messages,
             temperature=temperature
         )
         return res.choices[0].message.content.strip()
     except Exception as e:
-        print(f"⚠️ [LLM] Llama3-8b не ответила ({e}). Переключаюсь на Mixtral...")
+        print(f"⚠️ [LLM] gpt-4o-mini не ответил ({e}). Переключаюсь на Gemini Flash...")
         try:
-            res = await groq_client.chat.completions.create(
-                model="mixtral-8x7b-32768",  # <-- Запасная модель Groq
+            res = await or_client.chat.completions.create(
+                model="google/gemini-1.5-flash",  # <-- Супер-быстрая и дешевая запаска
                 messages=messages,
                 temperature=temperature
             )
@@ -146,7 +145,7 @@ async def generate_speech(text, target_lang):
 
 
 async def detect_language_audio(audio_bytes, file_name, content_type):
-    """Детектор языка: уши от Whisper (Groq), мозги от OpenRouter."""
+    """Детектор языка: уши от Whisper (Groq), мозги от OpenRouter (gpt-4o-mini)."""
     try:
        greetings_prompt = (
           "Taip, klausau. Labas rytas, laba diena, labas vakaras. "
@@ -169,7 +168,7 @@ async def detect_language_audio(audio_bytes, file_name, content_type):
        if not raw_text:
           return "RU", "[Тишина / Шум]"
 
-       # 2. LLM MAGIC: Классифицируем через умный fallback
+       # 2. LLM MAGIC: Классифицируем
        classifier_prompt = f"""You are a language detection router for an auto service in Lithuania.
 Analyze the following transcription: "{raw_text}"
 
