@@ -59,7 +59,7 @@ async def translate_and_fix(raw_text, source_lang):
     """LLM исправляет ошибки и переводит (Только для PBX)."""
     try:
        res = await groq_client.chat.completions.create(
-          model="llama-3.3-70b-versatile",  # <--- СТАБИЛЬНЫЙ ПРОДАКШН-ФЛАГМАН
+          model="llama-3.1-8b-instant",  # <--- Меняем на доступную 8B модель
           messages=[
              {"role": "system", "content": SYSTEM_PROMPT},
              {"role": "user", "content": f"Source text: {raw_text}"}
@@ -83,7 +83,7 @@ CRITICAL INSTRUCTIONS:
 
     try:
        res = await groq_client.chat.completions.create(
-          model="llama-3.3-70b-versatile",  # <--- СТАБИЛЬНЫЙ ПРОДАКШН-ФЛАГМАН
+          model="llama-3.1-8b-instant",  # <--- И здесь тоже меняем
           messages=[
              {"role": "system", "content": web_system_prompt},
              {"role": "user", "content": f"Source text: {raw_text}"}
