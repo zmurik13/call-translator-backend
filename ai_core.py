@@ -20,9 +20,9 @@ PROMPT_LT = "Labas rytas. Ratų bazė. Padangų montavimas. Patikrinam ryšį. A
 PROMPT_PL = "Dzień dobry. Serwis opon, wymiana kół. Słucham, dziękuję. Ile to kosztuje?"
 
 VOICE_MAP = {
-	"lt": "lt-LT-LeonasNeural",
-	"ru": "ru-RU-DmitryNeural",
-	"pl": "pl-PL-MarekNeural"
+    "lt": "lt-LT-LeonasNeural",
+    "ru": "ru-RU-DmitryNeural",
+    "pl": "pl-PL-MarekNeural"
 }
 
 HALLUCINATIONS = ["продолжение следует", "подписывайтесь на канал", "to be continued", "amara.org",
@@ -30,127 +30,122 @@ HALLUCINATIONS = ["продолжение следует", "подписывай
 
 
 async def transcribe_audio(audio_bytes, file_name, content_type, source_lang):
-	"""Распознает звук от любого источника (Web/PBX)."""
-	prompts = {"ru": PROMPT_RU, "lt": PROMPT_LT, "pl": PROMPT_PL}
-	current_prompt = prompts.get(source_lang, PROMPT_RU)
+    """Распознает звук от любого источника (Web/PBX)."""
+    prompts = {"ru": PROMPT_RU, "lt": PROMPT_LT, "pl": PROMPT_PL}
+    current_prompt = prompts.get(source_lang, PROMPT_RU)
 
-	try:
-		res = await groq_client.audio.transcriptions.create(
-			file=(file_name, audio_bytes, content_type),
-			model="whisper-large-v3",
-			prompt=current_prompt,
-			language=source_lang,
-			response_format="text"
-		)
-		text = res.strip()
-		lower_text = text.lower().strip('.?!, ')
+    try:
+       res = await groq_client.audio.transcriptions.create(
+          file=(file_name, audio_bytes, content_type),
+          model="whisper-large-v3-turbo",  # <--- ВКЛЮЧИЛИ TURBO-РЕЖИМ
+          prompt=current_prompt,
+          language=source_lang,
+          response_format="text"
+       )
+       text = res.strip()
+       lower_text = text.lower().strip('.?!, ')
 
-		if not lower_text or any(h in lower_text for h in HALLUCINATIONS) or lower_text in ["ačiū", "спасибо", "привет",
-		                                                                                    "labas", "dzięki"]:
-			return "[Тишина / Шум]", True
+       if not lower_text or any(h in lower_text for h in HALLUCINATIONS) or lower_text in ["ačiū", "спасибо", "привет",
+                                                                                           "labas", "dzięki"]:
+          return "[Тишина / Шум]", True
 
-		return text, False
-	except Exception as e:
-		print(f"STT Error: {e}")
-		return "[STT Error]", True
+       return text, False
+    except Exception as e:
+       print(f"STT Error: {e}")
+       return "[STT Error]", True
 
 
 async def translate_and_fix(raw_text, source_lang):
-	"""LLM исправляет ошибки и переводит (Только для PBX)."""
-	try:
-		res = await groq_client.chat.completions.create(
-			model="openai/gpt-oss-120b",
-			messages=[
-				{"role": "system", "content": SYSTEM_PROMPT},
-				{"role": "user", "content": f"Source text: {raw_text}"}
-			],
-			temperature=0.2
-		)
-		return res.choices[0].message.content.strip()
-	except Exception as e:
-		print(f"LLM Error: {e}")
-		return "[LLM Error]"
+    """LLM исправляет ошибки и переводит (Только для PBX)."""
+    try:
+       res = await groq_client.chat.completions.create(
+          model="llama-3.3-70b-versatile",  # <--- СТАБИЛЬНЫЙ ПРОДАКШН-ФЛАГМАН
+          messages=[
+             {"role": "system", "content": SYSTEM_PROMPT},
+             {"role": "user", "content": f"Source text: {raw_text}"}
+          ],
+          temperature=0.2
+       )
+       return res.choices[0].message.content.strip()
+    except Exception as e:
+       print(f"LLM Error: {e}")
+       return "[LLM Error]"
 
 
 async def web_translate_and_fix(raw_text, source_lang, target_lang):
-	"""Универсальный LLM переводчик для WEB-интерфейса (Любые пары)."""
-	web_system_prompt = f"""You are an elite, ultra-fast speech translator.
+    """Универсальный LLM переводчик для WEB-интерфейса (Любые пары)."""
+    web_system_prompt = f"""You are an elite, ultra-fast speech translator.
 CRITICAL INSTRUCTIONS:
 1. CONTEXT: Automotive service, tire replacement (RATŲ BAZĖ). Expect noisy audio.
 2. Translate the text strictly from {source_lang.upper()} to {target_lang.upper()}.
 3. GRAMMAR STRICTNESS: Ensure absolute grammatical perfection and natural phrasing.
 4. Output ONLY the final translated text. No explanations."""
 
-	try:
-		res = await groq_client.chat.completions.create(
-			model="openai/gpt-oss-120b",
-			messages=[
-				{"role": "system", "content": web_system_prompt},
-				{"role": "user", "content": f"Source text: {raw_text}"}
-			],
-			temperature=0.2
-		)
-		return res.choices[0].message.content.strip()
-	except Exception as e:
-		print(f"WEB LLM Error: {e}")
-		return "[LLM Error]"
+    try:
+       res = await groq_client.chat.completions.create(
+          model="llama-3.3-70b-versatile",  # <--- СТАБИЛЬНЫЙ ПРОДАКШН-ФЛАГМАН
+          messages=[
+             {"role": "system", "content": web_system_prompt},
+             {"role": "user", "content": f"Source text: {raw_text}"}
+          ],
+          temperature=0.2
+       )
+       return res.choices[0].message.content.strip()
+    except Exception as e:
+       print(f"WEB LLM Error: {e}")
+       return "[LLM Error]"
 
 
 async def generate_speech(text, target_lang):
-	"""Генерирует MP3 поток через Edge-TTS."""
-	# Получаем нужный голос
-	selected_voice = VOICE_MAP.get(target_lang, "ru-RU-DmitryNeural")
+    """Генерирует MP3 поток через Edge-TTS."""
+    selected_voice = VOICE_MAP.get(target_lang, "ru-RU-DmitryNeural")
 
-	# === ВОТ НАШ ХАК ===
-	# Добавляем троеточие в начало, чтобы плеер/наушники успели проснуться
-	text = f"... {text}"
-	# ===================
+    # === ЖЕСТКИЙ ХАК ДЛЯ ПАУЗЫ ===
+    # Точка и двойной абзац заставляют нейросеть сделать "вдох" перед чтением текста.
+    text = f". \n\n {text}"
 
-	audio_stream = io.BytesIO()
+    audio_stream = io.BytesIO()
 
-	for attempt in range(3):
-		try:
-			tts = edge_tts.Communicate(text, selected_voice)
-			async for chunk in tts.stream():
-				if chunk["type"] == "audio":
-					audio_stream.write(chunk["data"])
-			if audio_stream.tell() > 0:
-				audio_stream.seek(0)
-				return audio_stream, True
-		except Exception as e:
-			print(f"TTS Error attempt {attempt + 1}: {e}")
-			await asyncio.sleep(0.5)
+    for attempt in range(3):
+       try:
+          tts = edge_tts.Communicate(text, selected_voice)
+          async for chunk in tts.stream():
+             if chunk["type"] == "audio":
+                audio_stream.write(chunk["data"])
+          if audio_stream.tell() > 0:
+             audio_stream.seek(0)
+             return audio_stream, True
+       except Exception as e:
+          print(f"TTS Error attempt {attempt + 1}: {e}")
+          await asyncio.sleep(0.5)
 
-	return None, False
+    return None, False
 
 
 async def detect_language_audio(audio_bytes, file_name, content_type):
-	"""Определяет язык с помощью транскрипции Whisper и умного LLM-классификатора."""
-	try:
-		# 1. STT: Слушаем, что сказали (оставляем старый добрый Whisper)
-		greetings_prompt = (
-			"Taip, klausau. Labas rytas, laba diena, labas vakaras. "
-			"Sveiki, skambinu dėl padangų, ratų bazė. Noriu paklausti, kiek kainuoja, "
-			"ar turite laisvo laiko, noriu užsiregistruoti, pakeisti."
-		)
+    """Определяет язык с помощью транскрипции Whisper и умного LLM-классификатора."""
+    try:
+       greetings_prompt = (
+          "Taip, klausau. Labas rytas, laba diena, labas vakaras. "
+          "Sveiki, skambinu dėl padangų, ratų bazė. Noriu paklausti, kiek kainuoja, "
+          "ar turite laisvo laiko, noriu užsiregistruoti, pakeisti."
+       )
 
-		res = await groq_client.audio.transcriptions.create(
-			file=(file_name, audio_bytes, content_type),
-			model="whisper-large-v3",
-			prompt=greetings_prompt,
-			temperature=0.0,
-			response_format="text"
-		)
+       res = await groq_client.audio.transcriptions.create(
+          file=(file_name, audio_bytes, content_type),
+          model="whisper-large-v3-turbo",  # <--- ВКЛЮЧИЛИ TURBO-РЕЖИМ
+          prompt=greetings_prompt,
+          temperature=0.0,
+          response_format="text"
+       )
 
-		raw_text = res.strip()
-		print(f"🕵️ [DETECTOR] Whisper услышал текст: '{raw_text}'")
+       raw_text = res.strip()
+       print(f"🕵️ [DETECTOR] Whisper услышал текст: '{raw_text}'")
 
-		# Если прилетела абсолютная тишина — кидаем на менеджера
-		if not raw_text:
-			return "RU", "[Тишина / Шум]"
+       if not raw_text:
+          return "RU", "[Тишина / Шум]"
 
-		# 2. LLM MAGIC: Отправляем текст на классификацию
-		classifier_prompt = f"""You are a language detection router for an auto service in Lithuania.
+       classifier_prompt = f"""You are a language detection router for an auto service in Lithuania.
 Analyze the following transcription: "{raw_text}"
 
 Instructions:
@@ -159,22 +154,21 @@ Instructions:
 - Otherwise, return 'RU'.
 - Output ONLY TWO LETTERS: LT or RU. Do not explain anything."""
 
-		classification_res = await groq_client.chat.completions.create(
-			model="llama3-8b-8192",  # Легкая и молниеносная модель
-			messages=[{"role": "user", "content": classifier_prompt}],
-			temperature=0.0  # Отключаем креативность, нам нужна суровая логика
-		)
+       classification_res = await groq_client.chat.completions.create(
+          model="llama-3.1-8b-instant",  # <--- АКТУАЛЬНАЯ БЫСТРАЯ МОДЕЛЬ (Избегаем 400 ошибки)
+          messages=[{"role": "user", "content": classifier_prompt}],
+          temperature=0.0
+       )
 
-		# Чистим ответ, чтобы точно получить только LT или RU
-		lang_decision = classification_res.choices[0].message.content.strip().upper()
+       lang_decision = classification_res.choices[0].message.content.strip().upper()
 
-		if "LT" in lang_decision:
-			print(f"✅ [DETECTOR] LLM постановила: LT (Анализ текста: {raw_text})")
-			return "LT", raw_text
-		else:
-			print(f"✅ [DETECTOR] LLM постановила: RU (Анализ текста: {raw_text})")
-			return "RU", raw_text
+       if "LT" in lang_decision:
+          print(f"✅ [DETECTOR] LLM постановила: LT (Анализ текста: {raw_text})")
+          return "LT", raw_text
+       else:
+          print(f"✅ [DETECTOR] LLM постановила: RU (Анализ текста: {raw_text})")
+          return "RU", raw_text
 
-	except Exception as e:
-		print(f"❌ [DETECTOR] Ошибка: {e}")
-		return "RU", ""
+    except Exception as e:
+       print(f"❌ [DETECTOR] Ошибка: {e}")
+       return "RU", ""
