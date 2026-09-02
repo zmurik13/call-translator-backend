@@ -47,19 +47,19 @@ HALLUCINATIONS = ["продолжение следует", "подписывай
 
 # === УМНЫЙ РОУТЕР LLM С ЗАПАСКОЙ ===
 async def _call_llm(messages, temperature=0.2):
-    """Вызывает альтернативные бесплатные модели OpenRouter."""
+    """Вызывает стабильную Llama 3 через Groq API."""
     try:
-        res = await or_client.chat.completions.create(
-            model="mistralai/mistral-7b-instruct:free",
+        res = await groq_client.chat.completions.create(
+            model="llama3-8b-8192",  # <-- Стабильная базовая модель Groq
             messages=messages,
             temperature=temperature
         )
         return res.choices[0].message.content.strip()
     except Exception as e:
-        print(f"⚠️ [LLM] Mistral не ответил ({e}). Переключаюсь на Qwen...")
+        print(f"⚠️ [LLM] Llama3-8b не ответила ({e}). Переключаюсь на Mixtral...")
         try:
-            res = await or_client.chat.completions.create(
-                model="qwen/qwen-2-7b-instruct:free",
+            res = await groq_client.chat.completions.create(
+                model="mixtral-8x7b-32768",  # <-- Запасная модель Groq
                 messages=messages,
                 temperature=temperature
             )
