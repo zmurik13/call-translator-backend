@@ -3,9 +3,17 @@ import io
 import asyncio
 from groq import AsyncGroq
 import edge_tts
+import google.generativeai as genai
 
+# Инициализация Groq (Только для STT - Whisper)
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
 groq_client = AsyncGroq(api_key=GROQ_API_KEY) if GROQ_API_KEY else None
+
+# Инициализация Gemini (Для LLM: переводы и логика)
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
+if GEMINI_API_KEY:
+    genai.configure(api_key=GEMINI_API_KEY)
+    gemini_model = genai.GenerativeModel('gemini-1.5-flash')
 
 SYSTEM_PROMPT = """You are an elite, ultra-fast speech translator (RU <-> LT).
 CRITICAL INSTRUCTIONS:
@@ -30,14 +38,14 @@ HALLUCINATIONS = ["продолжение следует", "подписывай
 
 
 async def transcribe_audio(audio_bytes, file_name, content_type, source_lang):
-    """Распознает звук от любого источника (Web/PBX)."""
+    """Распознает звук от любого источника через Groq (Whisper-Turbo)."""
     prompts = {"ru": PROMPT_RU, "lt": PROMPT_LT, "pl": PROMPT_PL}
     current_prompt = prompts.get(source_lang, PROMPT_RU)
 
     try:
        res = await groq_client.audio.transcriptions.create(
           file=(file_name, audio_bytes, content_type),
-          model="whisper-large-v3-turbo",  # <--- ВКЛЮЧИЛИ TURBO-РЕЖИМ
+          model="whisper-large-v3-turbo",  # Оставляем турбо-уши
           prompt=current_prompt,
           language=source_lang,
           response_format="text"
@@ -56,24 +64,21 @@ async def transcribe_audio(audio_bytes, file_name, content_type, source_lang):
 
 
 async def translate_and_fix(raw_text, source_lang):
-    """LLM исправляет ошибки и переводит (Только для PBX)."""
+    """LLM исправляет ошибки и переводит (Google Gemini)."""
     try:
-       res = await groq_client.chat.completions.create(
-          model="llama-3.1-8b-instant",  # <--- Меняем на доступную 8B модель
-          messages=[
-             {"role": "system", "content": SYSTEM_PROMPT},
-             {"role": "user", "content": f"Source text: {raw_text}"}
-          ],
-          temperature=0.2
+       prompt = f"{SYSTEM_PROMPT}\n\nSource text: {raw_text}"
+       response = await gemini_model.generate_content_async(
+           prompt,
+           generation_config=genai.types.GenerationConfig(temperature=0.2)
        )
-       return res.choices[0].message.content.strip()
+       return response.text.strip()
     except Exception as e:
        print(f"LLM Error: {e}")
        return "[LLM Error]"
 
 
 async def web_translate_and_fix(raw_text, source_lang, target_lang):
-    """Универсальный LLM переводчик для WEB-интерфейса (Любые пары)."""
+    """Универсальный LLM переводчик для WEB (Google Gemini)."""
     web_system_prompt = f"""You are an elite, ultra-fast speech translator.
 CRITICAL INSTRUCTIONS:
 1. CONTEXT: Automotive service, tire replacement (RATŲ BAZĖ). Expect noisy audio.
@@ -82,15 +87,12 @@ CRITICAL INSTRUCTIONS:
 4. Output ONLY the final translated text. No explanations."""
 
     try:
-       res = await groq_client.chat.completions.create(
-          model="llama-3.1-8b-instant",  # <--- И здесь тоже меняем
-          messages=[
-             {"role": "system", "content": web_system_prompt},
-             {"role": "user", "content": f"Source text: {raw_text}"}
-          ],
-          temperature=0.2
+       prompt = f"{web_system_prompt}\n\nSource text: {raw_text}"
+       response = await gemini_model.generate_content_async(
+           prompt,
+           generation_config=genai.types.GenerationConfig(temperature=0.2)
        )
-       return res.choices[0].message.content.strip()
+       return response.text.strip()
     except Exception as e:
        print(f"WEB LLM Error: {e}")
        return "[LLM Error]"
@@ -101,7 +103,6 @@ async def generate_speech(text, target_lang):
     selected_voice = VOICE_MAP.get(target_lang, "ru-RU-DmitryNeural")
 
     # === ЖЕСТКИЙ ХАК ДЛЯ ПАУЗЫ ===
-    # Точка и двойной абзац заставляют нейросеть сделать "вдох" перед чтением текста.
     text = f". \n\n {text}"
 
     audio_stream = io.BytesIO()
@@ -123,7 +124,7 @@ async def generate_speech(text, target_lang):
 
 
 async def detect_language_audio(audio_bytes, file_name, content_type):
-    """Определяет язык с помощью транскрипции Whisper и умного LLM-классификатора."""
+    """Определяет язык: уши от Whisper (Groq), мозги от Gemini."""
     try:
        greetings_prompt = (
           "Taip, klausau. Labas rytas, laba diena, labas vakaras. "
@@ -131,9 +132,10 @@ async def detect_language_audio(audio_bytes, file_name, content_type):
           "ar turite laisvo laiko, noriu užsiregistruoti, pakeisti."
        )
 
+       # 1. STT: Слушаем через Groq
        res = await groq_client.audio.transcriptions.create(
           file=(file_name, audio_bytes, content_type),
-          model="whisper-large-v3-turbo",  # <--- ВКЛЮЧИЛИ TURBO-РЕЖИМ
+          model="whisper-large-v3-turbo",
           prompt=greetings_prompt,
           temperature=0.0,
           response_format="text"
@@ -145,6 +147,7 @@ async def detect_language_audio(audio_bytes, file_name, content_type):
        if not raw_text:
           return "RU", "[Тишина / Шум]"
 
+       # 2. LLM MAGIC: Классифицируем через Gemini
        classifier_prompt = f"""You are a language detection router for an auto service in Lithuania.
 Analyze the following transcription: "{raw_text}"
 
@@ -154,19 +157,18 @@ Instructions:
 - Otherwise, return 'RU'.
 - Output ONLY TWO LETTERS: LT or RU. Do not explain anything."""
 
-       classification_res = await groq_client.chat.completions.create(
-          model="llama-3.1-8b-instant",  # <--- АКТУАЛЬНАЯ БЫСТРАЯ МОДЕЛЬ (Избегаем 400 ошибки)
-          messages=[{"role": "user", "content": classifier_prompt}],
-          temperature=0.0
+       classification_res = await gemini_model.generate_content_async(
+           classifier_prompt,
+           generation_config=genai.types.GenerationConfig(temperature=0.0)
        )
 
-       lang_decision = classification_res.choices[0].message.content.strip().upper()
+       lang_decision = classification_res.text.strip().upper()
 
        if "LT" in lang_decision:
-          print(f"✅ [DETECTOR] LLM постановила: LT (Анализ текста: {raw_text})")
+          print(f"✅ [DETECTOR] Gemini постановил: LT (Анализ текста: {raw_text})")
           return "LT", raw_text
        else:
-          print(f"✅ [DETECTOR] LLM постановила: RU (Анализ текста: {raw_text})")
+          print(f"✅ [DETECTOR] Gemini постановил: RU (Анализ текста: {raw_text})")
           return "RU", raw_text
 
     except Exception as e:
