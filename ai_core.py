@@ -51,16 +51,21 @@ async def _call_llm(messages, temperature=0.2):
 			messages=messages,
 			temperature=temperature
 		)
-		return res.choices[0].message.content.strip()
+		# Безопасно получаем контент. Если он None (пустота), возвращаем пустую строку ""
+		content = res.choices[0].message.content
+		return content.strip() if content else ""
+
 	except Exception as e:
 		print(f"⚠️ [LLM] gpt-4o-mini не ответил ({e}). Переключаюсь на Gemini Flash...")
 		try:
 			res = await or_client.chat.completions.create(
-				model="google/gemini-1.5-flash",
+				model="google/gemini-flash-1.5",  # <-- Исправленный ID модели
 				messages=messages,
 				temperature=temperature
 			)
-			return res.choices[0].message.content.strip()
+			content = res.choices[0].message.content
+			return content.strip() if content else ""
+
 		except Exception as fallback_err:
 			print(f"❌ [LLM] Ошибка обоих LLM-моделей: {fallback_err}")
 			return "[LLM Error]"
