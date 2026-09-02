@@ -47,19 +47,19 @@ HALLUCINATIONS = ["продолжение следует", "подписывай
 
 # === УМНЫЙ РОУТЕР LLM С ЗАПАСКОЙ ===
 async def _call_llm(messages, temperature=0.2):
-    """Вызывает GPT-4o-mini. При любой ошибке бесшовно переключается на Gemini Flash."""
+    """Вызывает бесплатную Llama-3.1. При ошибке переключается на Gemma-2."""
     try:
         res = await or_client.chat.completions.create(
-            model="openai/gpt-4o-mini",
+            model="meta-llama/llama-3.1-8b-instruct:free",  # <-- БЕСПЛАТНАЯ МОДЕЛЬ
             messages=messages,
             temperature=temperature
         )
         return res.choices[0].message.content.strip()
     except Exception as e:
-        print(f"⚠️ [LLM] gpt-4o-mini не ответил ({e}). Переключаюсь на Gemini Flash...")
+        print(f"⚠️ [LLM] Llama-3.1 не ответила ({e}). Переключаюсь на Gemma-2...")
         try:
             res = await or_client.chat.completions.create(
-                model="google/gemini-1.5-flash",
+                model="google/gemma-2-9b-it:free",  # <-- ЗАПАСНАЯ БЕСПЛАТНАЯ МОДЕЛЬ
                 messages=messages,
                 temperature=temperature
             )
