@@ -47,19 +47,19 @@ HALLUCINATIONS = ["продолжение следует", "подписывай
 
 # === УМНЫЙ РОУТЕР LLM С ЗАПАСКОЙ ===
 async def _call_llm(messages, temperature=0.2):
-    """Вызывает бесплатную Llama-3.1. При ошибке переключается на Gemma-2."""
+    """Вызывает альтернативные бесплатные модели OpenRouter."""
     try:
         res = await or_client.chat.completions.create(
-            model="meta-llama/llama-3.1-8b-instruct:free",  # <-- БЕСПЛАТНАЯ МОДЕЛЬ
+            model="mistralai/mistral-7b-instruct:free",
             messages=messages,
             temperature=temperature
         )
         return res.choices[0].message.content.strip()
     except Exception as e:
-        print(f"⚠️ [LLM] Llama-3.1 не ответила ({e}). Переключаюсь на Gemma-2...")
+        print(f"⚠️ [LLM] Mistral не ответил ({e}). Переключаюсь на Qwen...")
         try:
             res = await or_client.chat.completions.create(
-                model="google/gemma-2-9b-it:free",  # <-- ЗАПАСНАЯ БЕСПЛАТНАЯ МОДЕЛЬ
+                model="qwen/qwen-2-7b-instruct:free",
                 messages=messages,
                 temperature=temperature
             )
