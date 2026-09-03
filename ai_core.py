@@ -20,14 +20,13 @@ or_client = AsyncOpenAI(
 )
 
 # === КОНСТАНТЫ И ПРОМПТЫ ===
-SYSTEM_PROMPT = """You are an elite, ultra-fast speech translator (RU <-> LT) for an automotive tire service (RATŲ BAZĖ).
+SYSTEM_PROMPT = """You are an elite speech translator (RU <-> LT) for an automotive tire service (RATŲ BAZĖ).
 CRITICAL INSTRUCTIONS:
-1. TRANSLATE EVERYTHING LITERALLY: Even if the user talks about food, weather, or unrelated topics, translate it accurately. Do not force the tire context if the words mean something else.
-2. CONTEXTUAL RECONSTRUCTION: Input might come from noisy phone lines. Reconstruct the logical phrase before translating.
-3. Translate the corrected meaning to the OTHER language (If input is Russian -> Lithuanian. If input is Lithuanian -> Russian).
-4. GRAMMAR STRICTNESS: Ensure absolute grammatical perfection.
-5. Output ONLY the final translated text. No explanations.
-6. ANTI-APOLOGY RULE: NEVER apologize or say "I cannot help". If the input is complete gibberish or noise, output an empty string."""
+1. FIX STT ERRORS FIRST: The input text comes from speech-to-text and contains severe phonetic errors (e.g., hearing "Lamba sritys" instead of "Labas rytas", or "drūko dangų" instead of "dėl padangų"). You MUST reconstruct the logical original phrase in the source language based on how it sounds, BEFORE translating.
+2. CONTEXT VS LITERAL: Use the tire service context to guess misheard words. However, if the user clearly talks about unrelated topics (like food or weather), translate it accurately.
+3. Translate the corrected meaning to the OTHER language.
+4. Output ONLY the final translated text. No explanations.
+5. ANTI-APOLOGY RULE: NEVER apologize. If the input is pure noise, output an empty string."""
 
 VOICE_MAP = {
 	"lt": "lt-LT-LeonasNeural",
@@ -69,10 +68,10 @@ async def _call_llm(messages, temperature=0.2):
 # === ФУНКЦИИ ЯДРА ===
 
 async def transcribe_audio(audio_bytes, file_name, content_type, source_lang):
-	"""Идеальные уши от Deepgram Nova-3. Сверхчувствительный режим (ловит короткие слова)."""
+	"""Идеальные уши от Deepgram Nova-3 (Без параноидального режима диктанта)."""
 	try:
-		# dictation=true и filler_words=true запрещают Deepgram игнорировать короткие звуки
-		url = f"https://api.deepgram.com/v1/listen?model=nova-3&smart_format=true&language={source_lang}&dictation=true&filler_words=true"
+		# Убрали dictation и filler_words, оставили только smart_format
+		url = f"https://api.deepgram.com/v1/listen?model=nova-3&smart_format=true&language={source_lang}"
 		headers = {
 			"Authorization": f"Token {DEEPGRAM_API_KEY}",
 			"Content-Type": content_type or "audio/wav"
@@ -89,7 +88,6 @@ async def transcribe_audio(audio_bytes, file_name, content_type, source_lang):
 
 				lower_text = text.lower().strip('.?!, ')
 
-				# Блокируем только откровенные галлюцинации и полную тишину
 				if not lower_text or any(h in lower_text for h in HALLUCINATIONS):
 					return "[Тишина / Шум]", True
 
@@ -110,12 +108,13 @@ async def translate_and_fix(raw_text, source_lang):
 
 async def web_translate_and_fix(raw_text, source_lang, target_lang):
 	"""Универсальный LLM переводчик для WEB."""
-	web_system_prompt = f"""You are an elite, ultra-fast speech translator.
-CRITICAL INSTRUCTIONS:
-1. You work at RATŲ BAZĖ, but YOU MUST TRANSLATE EVERYTHING LITERALLY, even if the user talks about food, weather, or unrelated topics. Do not force the tire context if the words mean something else.
-2. Translate strictly from {source_lang.upper()} to {target_lang.upper()}. Beware of false friends (e.g., LT 'man' means 'to me', not 'adult male').
-3. Output ONLY the final translated text. No explanations.
-4. ANTI-APOLOGY RULE: NEVER apologize. If the input is complete gibberish, output an empty string."""
+	web_system_prompt = f"""You are an elite speech translator.
+	CRITICAL INSTRUCTIONS:
+	1. FIX STT ERRORS FIRST: The input text comes from speech-to-text and contains severe phonetic errors (e.g., hearing "Lamba sritys" instead of "Labas rytas", or "Tikiniame" instead of "Tikriname"). You MUST reconstruct the logical original phrase based on phonetic similarity BEFORE translating.
+	2. CONTEXT: You work at RATŲ BAZĖ. Use this context to fix garbled audio (e.g., 'padangų'). But if the text is clearly about something else, translate it literally.
+	3. Translate strictly from {source_lang.upper()} to {target_lang.upper()}. 
+	4. Output ONLY the final translated text. No explanations.
+	5. ANTI-APOLOGY RULE: NEVER apologize. If the input is complete gibberish, output an empty string."""
 
 	messages = [
 		{"role": "system", "content": web_system_prompt},
