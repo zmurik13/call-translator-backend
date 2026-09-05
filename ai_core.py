@@ -5,7 +5,7 @@ import aiohttp
 from dotenv import load_dotenv
 from openai import AsyncOpenAI
 import edge_tts
-import websockets  # Добавь это в самый верх файла к остальным импортам
+import websockets
 
 # === ЗАГРУЗКА .ENV ===
 load_dotenv()
@@ -124,7 +124,7 @@ async def web_translate_and_fix(raw_text, source_lang, target_lang):
     1. FIX STT ERRORS FIRST: The input text comes from speech-to-text and contains severe phonetic errors (e.g., hearing "Lamba sritys" instead of "Labas rytas", or "Tikiniame" instead of "Tikriname"). You MUST reconstruct the logical original phrase based on phonetic similarity BEFORE translating.
     2. CONTEXT: You work at RATŲ BAZĖ. Use this context to fix garbled audio (e.g., 'padangų'). But if the text is clearly about something else, translate it literally.
     3. Translate strictly from {source_lang.upper()} to {target_lang.upper()}. 
-    4. Output ONLY the final translated text. No explanations.
+    4. Output ONLY the final translated text. No explanations. No markdown formatting, no quotes, no code blocks. Even if the input is a single short word like 'Yes' or 'No', translate it directly without any additional text.
     5. ANTI-APOLOGY RULE: NEVER apologize. If the input is complete gibberish, output an empty string."""
 
 	messages = [
@@ -133,37 +133,45 @@ async def web_translate_and_fix(raw_text, source_lang, target_lang):
 	]
 	translated = await _call_llm(messages, temperature=0.2)
 
+	# ЖЕСТКАЯ ОЧИСТКА: Убиваем артефакты, кавычки и блоки кода
+	translated = translated.replace("```", "").replace("`", "").replace('"', '').strip()
+
+	# Если нейросеть всё равно вернула пустоту, отдаем исходное слово, чтобы не было тишины
+	if not translated:
+		translated = raw_text
+
 	# Логируем результат
 	print(f"✅ [WEB OUT] Перевод: {translated}")
 	return translated
 
+
 async def generate_speech(text, target_lang):
-    """Генерирует MP3 поток через Edge-TTS (мягкий фикс против проглатывания начала)."""
-    if not text or text == "[LLM Error]":
-       return None, False
+	"""Генерирует MP3 поток через Edge-TTS (мягкий фикс против проглатывания начала)."""
+	if not text or text == "[LLM Error]":
+		return None, False
 
-    selected_voice = VOICE_MAP.get(target_lang, "ru-RU-DmitryNeural")
+	selected_voice = VOICE_MAP.get(target_lang, "ru-RU-DmitryNeural")
 
-    # === МЯГКИЙ ХАК ДЛЯ ПАУЗЫ ===
-    # Используем троеточие вместо \n\n, чтобы польский голос не глотал первое слово
-    text = f" , , , {text}"
+	# === МЯГКИЙ ХАК ДЛЯ ПАУЗЫ ===
+	# Используем троеточие вместо \n\n, чтобы польский голос не глотал первое слово
+	text = f" , , , {text}"
 
-    audio_stream = io.BytesIO()
+	audio_stream = io.BytesIO()
 
-    for attempt in range(3):
-       try:
-          tts = edge_tts.Communicate(text, selected_voice)
-          async for chunk in tts.stream():
-             if chunk["type"] == "audio":
-                audio_stream.write(chunk["data"])
-          if audio_stream.tell() > 0:
-             audio_stream.seek(0)
-             return audio_stream, True
-       except Exception as e:
-          print(f"⚠️ [TTS Error] попытка {attempt + 1}: {e}")
-          await asyncio.sleep(0.5)
+	for attempt in range(3):
+		try:
+			tts = edge_tts.Communicate(text, selected_voice)
+			async for chunk in tts.stream():
+				if chunk["type"] == "audio":
+					audio_stream.write(chunk["data"])
+			if audio_stream.tell() > 0:
+				audio_stream.seek(0)
+				return audio_stream, True
+		except Exception as e:
+			print(f"⚠️ [TTS Error] попытка {attempt + 1}: {e}")
+			await asyncio.sleep(0.5)
 
-    return None, False
+	return None, False
 
 
 async def detect_language_audio(audio_bytes, file_name, content_type):
@@ -220,9 +228,8 @@ async def connect_deepgram_live(source_lang):
 	Открывает постоянный WebSocket-канал с Deepgram.
 	Настроен на ожидание логических пауз (endpointing).
 	"""
-	# Параметр endpointing=500 означает: "жди 500мс тишины, прежде чем сказать, что фраза закончена"
-	# interim_results=false означает: "не присылай мне обрывки слов, присылай только готовые фразы"
-	url = f"wss://api.deepgram.com/v1/listen?model=nova-3&smart_format=true&language={source_lang}&interim_results=false&endpointing=500"
+	# Параметр endpointing=1500 (Увеличено, чтобы не резать слова)
+	url = f"wss://api.deepgram.com/v1/listen?model=nova-2&smart_format=true&language={source_lang}&interim_results=false&endpointing=1500"
 
 	headers = {
 		"Authorization": f"Token {DEEPGRAM_API_KEY}"
