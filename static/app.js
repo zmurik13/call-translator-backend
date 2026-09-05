@@ -222,21 +222,31 @@ class VoiceTranslator {
 
         const duration = Date.now() - this.state.recordStartTime;
 
-        if (duration < 500) {
+        // Порог случайного клика снижен с 500 до 200 мс!
+        // Теперь короткие слова типа "Labas" или "Да" не будут сбрасываться.
+        if (duration < 200) {
             this.state.ignoreRecording = true;
-            // Делаем явную подсказку, если человек просто кликнул, а не зажал
             this.updateStatus("⚠️ Нужно УДЕРЖИВАТЬ кнопку");
             if (this.ws) this.ws.close();
+
             setTimeout(() => {
                 if (!this.state.isRecording) this.updateStatus("Зажмите кнопку для перевода");
             }, 2000);
         } else {
             this.updateStatus("Ожидание перевода...");
+
+            // НОВОЕ: Говорим серверу, что мы закончили говорить.
+            // Это заставит Deepgram сразу перевести то, что зависло после паузы.
+            if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+                this.ws.send(JSON.stringify({ type: "stop_audio" }));
+            }
         }
 
-        if (this.mediaRecorder.state === 'recording') this.mediaRecorder.stop();
+        if (this.mediaRecorder.state === 'recording') {
+            this.mediaRecorder.stop();
+        }
 
-        // Увеличили задержку закрытия до 5 секунд (редкие языки могут переводиться чуть дольше)
+        // Увеличили задержку закрытия до 5 секунд (редкие языки или длинные хвосты могут переводиться дольше)
         setTimeout(() => {
             if (this.ws && this.ws.readyState === WebSocket.OPEN) {
                 this.ws.close();

@@ -65,19 +65,31 @@ async def websocket_translate(websocket: WebSocket):
 
 		print(f"⚙️ [WS] Настройки получены: {source_lang.upper()} ➔ {target_lang.upper()}")
 
-		# 2. Открываем Live-соединение с Deepgram
-		dg_socket = await ai_core.connect_deepgram_live(source_lang)
-
 		# ЗАДАЧА А: Читаем аудио с телефона и льем в Deepgram
 		async def receive_from_client():
 			try:
 				while True:
-					audio_chunk = await websocket.receive_bytes()
-					await dg_socket.send(audio_chunk)
+					# Читаем всё подряд: и байты, и текст
+					message = await websocket.receive()
+
+					if "bytes" in message:
+						# Это сырой звук - перекидываем в Deepgram
+						await dg_socket.send(message["bytes"])
+
+					elif "text" in message:
+						# Это служебная команда от фронтенда
+						try:
+							data = json.loads(message["text"])
+							if data.get("type") == "stop_audio":
+								print("🛑 [WS] Кнопка отпущена. Заставляем Deepgram выдать остатки...")
+								# Команда CloseStream заставляет Deepgram перевести то, что зависло в буфере
+								await dg_socket.send(json.dumps({"type": "CloseStream"}))
+						except:
+							pass
 			except WebSocketDisconnect:
 				print("🔴 [WS] Клиент отключился")
 			except Exception as e:
-				print(f"⚠️ [WS] Ошибка чтения аудио: {e}")
+				print(f"⚠️ [WS] Ошибка чтения от клиента: {e}")
 
 		# ЗАДАЧА Б: Слушаем Deepgram, переводим и шлем результат обратно клиенту
 		async def process_deepgram():
