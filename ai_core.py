@@ -99,29 +99,42 @@ async def transcribe_audio(audio_bytes, file_name, content_type, source_lang):
 
 async def translate_and_fix(raw_text, source_lang):
 	"""LLM переводчик для PBX."""
+	# Логируем то, что пришло со звонка
+	print(f"📞 [PBX IN] {source_lang.upper()}: {raw_text}")
+
 	messages = [
 		{"role": "system", "content": SYSTEM_PROMPT},
 		{"role": "user", "content": f"Source text: {raw_text}"}
 	]
-	return await _call_llm(messages, temperature=0.2)
+	translated = await _call_llm(messages, temperature=0.2)
+
+	# Логируем результат перевода
+	print(f"🤖 [PBX OUT] Перевод: {translated}")
+	return translated
 
 
 async def web_translate_and_fix(raw_text, source_lang, target_lang):
 	"""Универсальный LLM переводчик для WEB."""
+	# Логируем веб-запрос
+	print(f"🌐 [WEB IN] Маршрут {source_lang.upper()} -> {target_lang.upper()} | Текст: {raw_text}")
+
 	web_system_prompt = f"""You are an elite speech translator.
-	CRITICAL INSTRUCTIONS:
-	1. FIX STT ERRORS FIRST: The input text comes from speech-to-text and contains severe phonetic errors (e.g., hearing "Lamba sritys" instead of "Labas rytas", or "Tikiniame" instead of "Tikriname"). You MUST reconstruct the logical original phrase based on phonetic similarity BEFORE translating.
-	2. CONTEXT: You work at RATŲ BAZĖ. Use this context to fix garbled audio (e.g., 'padangų'). But if the text is clearly about something else, translate it literally.
-	3. Translate strictly from {source_lang.upper()} to {target_lang.upper()}. 
-	4. Output ONLY the final translated text. No explanations.
-	5. ANTI-APOLOGY RULE: NEVER apologize. If the input is complete gibberish, output an empty string."""
+    CRITICAL INSTRUCTIONS:
+    1. FIX STT ERRORS FIRST: The input text comes from speech-to-text and contains severe phonetic errors (e.g., hearing "Lamba sritys" instead of "Labas rytas", or "Tikiniame" instead of "Tikriname"). You MUST reconstruct the logical original phrase based on phonetic similarity BEFORE translating.
+    2. CONTEXT: You work at RATŲ BAZĖ. Use this context to fix garbled audio (e.g., 'padangų'). But if the text is clearly about something else, translate it literally.
+    3. Translate strictly from {source_lang.upper()} to {target_lang.upper()}. 
+    4. Output ONLY the final translated text. No explanations.
+    5. ANTI-APOLOGY RULE: NEVER apologize. If the input is complete gibberish, output an empty string."""
 
 	messages = [
 		{"role": "system", "content": web_system_prompt},
 		{"role": "user", "content": f"Source text: {raw_text}"}
 	]
-	return await _call_llm(messages, temperature=0.2)
+	translated = await _call_llm(messages, temperature=0.2)
 
+	# Логируем результат
+	print(f"✅ [WEB OUT] Перевод: {translated}")
+	return translated
 
 async def generate_speech(text, target_lang):
     """Генерирует MP3 поток через Edge-TTS (мягкий фикс против проглатывания начала)."""
@@ -132,7 +145,7 @@ async def generate_speech(text, target_lang):
 
     # === МЯГКИЙ ХАК ДЛЯ ПАУЗЫ ===
     # Используем троеточие вместо \n\n, чтобы польский голос не глотал первое слово
-    text = f"… {text}"
+    text = f" , , , {text}"
 
     audio_stream = io.BytesIO()
 
