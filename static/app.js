@@ -31,7 +31,7 @@ class VoiceTranslator {
         this.audioStream = null;
         this.ws = null;
 
-        // ОЧЕРЕДЬ ВОСПРОИЗВЕДЕНИЯ (Решает проблему наложения звука)
+        // Очередь воспроизведения (играет файлы строго по одному)
         this.audioQueue = [];
         this.isPlaying = false;
 
@@ -129,12 +129,11 @@ class VoiceTranslator {
         if (this.audioCtx.state === 'suspended') this.audioCtx.resume();
     }
 
-    // ЛОГИКА ОЧЕРЕДИ: Играет файлы строго по одному!
     async playNextAudio() {
         if (this.isPlaying || this.audioQueue.length === 0) return;
 
         this.isPlaying = true;
-        const arrayBuffer = this.audioQueue.shift(); // Достаем первый файл в очереди
+        const arrayBuffer = this.audioQueue.shift();
 
         try {
             const audioBuffer = await this.audioCtx.decodeAudioData(arrayBuffer);
@@ -142,7 +141,6 @@ class VoiceTranslator {
             source.buffer = audioBuffer;
             source.connect(this.audioCtx.destination);
 
-            // Как только файл закончился - берем следующий
             source.onended = () => {
                 this.isPlaying = false;
                 this.playNextAudio();
@@ -175,12 +173,13 @@ class VoiceTranslator {
         this.state.ignoreRecording = false;
         this.state.recordStartTime = Date.now();
 
-        // Сбрасываем очередь перед новой записью
         this.audioQueue = [];
         this.isPlaying = false;
 
         this.ui.dotSource.style.color = this.langConfig[sourceLang].color;
         this.ui.dotTarget.style.color = this.langConfig[targetLang].color;
+
+        // Очищаем текст только при старте новой записи!
         this.ui.recognized.innerText = '...';
         this.ui.translated.innerText = '...';
 
@@ -191,7 +190,7 @@ class VoiceTranslator {
         this.ws = new WebSocket(`${protocol}//${window.location.host}/api/web/ws/translate`);
 
         this.ws.onopen = async () => {
-            this.updateStatus("Слушаю... Говорите без пауз");
+            this.updateStatus("Слушаю...");
             const telemetry = await VoiceTranslator.getTelemetryData();
 
             this.ws.send(JSON.stringify({
@@ -207,15 +206,22 @@ class VoiceTranslator {
         this.ws.onmessage = async (e) => {
             if (typeof e.data === 'string') {
                 const data = JSON.parse(e.data);
+
+                // === МАГИЯ СКЛЕИВАНИЯ ТЕКСТА ===
                 if (data.type === 'stt') {
-                    this.ui.recognized.innerText = data.text;
-                } else if (data.type === 'llm') {
-                    this.ui.translated.innerText = data.text;
-                } else if (data.type === 'audio_done') {
+                    let current = this.ui.recognized.innerText;
+                    if (current === '...') current = ''; // Убираем точки при первом слове
+                    this.ui.recognized.innerText = current + (current ? ' ' : '') + data.text;
+                }
+                else if (data.type === 'llm') {
+                    let current = this.ui.translated.innerText;
+                    if (current === '...') current = '';
+                    this.ui.translated.innerText = current + (current ? ' ' : '') + data.text;
+                }
+                else if (data.type === 'audio_done') {
                     this.updateStatus("Готово! (Можете продолжать)");
                 }
             } else if (e.data instanceof Blob) {
-                // Добавляем MP3 в очередь и дергаем плеер
                 const arrayBuffer = await e.data.arrayBuffer();
                 this.audioQueue.push(arrayBuffer);
                 this.playNextAudio();
@@ -266,7 +272,6 @@ class VoiceTranslator {
             this.mediaRecorder.stop();
         }
 
-        // Даем серверу 10 секунд на перевод и TTS, чтобы короткие фразы не прерывались!
         setTimeout(() => {
             if (this.ws && this.ws.readyState === WebSocket.OPEN) {
                 this.ws.close();

@@ -117,8 +117,8 @@ async def websocket_translate(websocket: WebSocket):
                          await dg_socket.send(json.dumps({"type": "CloseStream"}))
                    except:
                       pass
-          except WebSocketDisconnect:
-             pass
+          except (WebSocketDisconnect, RuntimeError):
+             pass  # Телефон отключился, это нормально
           except Exception as e:
              print(f"⚠️ [WS] Ошибка чтения от клиента: {e}")
 
@@ -135,7 +135,7 @@ async def websocket_translate(websocket: WebSocket):
                       print(f"🗣️ [WS STT] Распознано: {transcript}")
                       await websocket.send_text(json.dumps({"type": "stt", "text": transcript}))
 
-                      # 🔥 Передаем задачу в фоне, чтобы цикл продолжил слушать микрофон
+                      # 🔥 Передаем задачу в фоне
                       asyncio.create_task(
                           process_translation_pipeline(transcript, source_lang, target_lang, device_info, websocket)
                       )
@@ -146,11 +146,9 @@ async def websocket_translate(websocket: WebSocket):
        client_task = asyncio.create_task(receive_from_client())
        dg_task = asyncio.create_task(process_deepgram())
 
-       done, pending = await asyncio.wait(
-          [client_task, dg_task], return_when=asyncio.FIRST_COMPLETED
-       )
-       for task in pending:
-          task.cancel()
+       # 🔥 Блокируем закрытие сокета со стороны сервера! Ждем таймера на телефоне.
+       await client_task
+       dg_task.cancel()
 
     except WebSocketDisconnect:
        print("🔴 [WS] Соединение закрыто браузером")
