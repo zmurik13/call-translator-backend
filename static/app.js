@@ -31,6 +31,10 @@ class VoiceTranslator {
         this.audioStream = null;
         this.ws = null;
 
+        // ОЧЕРЕДЬ ВОСПРОИЗВЕДЕНИЯ (Решает проблему наложения звука)
+        this.audioQueue = [];
+        this.isPlaying = false;
+
         const AudioContext = window.AudioContext || window.webkitAudioContext;
         this.audioCtx = new AudioContext();
 
@@ -47,12 +51,10 @@ class VoiceTranslator {
         this.ui.pairSelector.addEventListener('change', () => this.updateUIPair());
 
         [this.ui.btnTop, this.ui.btnBottom].forEach(btn => {
-            // МАГИЯ ДЛЯ ТЕЛЕФОНОВ: Запрещаем выделение текста, лупу и меню
             btn.style.touchAction = 'none';
             btn.style.webkitUserSelect = 'none';
             btn.style.userSelect = 'none';
             btn.style.webkitTouchCallout = 'none';
-
             btn.addEventListener('contextmenu', e => e.preventDefault());
         });
 
@@ -77,12 +79,10 @@ class VoiceTranslator {
 
         this.ui.btnTopLabel.innerText = `${l1.flag} ${l1.name} ➔ ${l2.name}`;
         this.ui.btnTop.style.setProperty('--current-color', l1.color);
-
         this.ui.btnBottomLabel.innerText = `${l2.flag} ${l2.name} ➔ ${l1.name}`;
         this.ui.btnBottom.style.setProperty('--current-color', l2.color);
     }
 
-    // Собираем тихую телеметрию без запроса разрешений
     static async getTelemetryData() {
         let network = navigator.connection ? navigator.connection.effectiveType.toUpperCase() : 'UNKNOWN';
         let platform = 'Unknown OS';
@@ -94,9 +94,7 @@ class VoiceTranslator {
             try {
                 const highEntropy = await navigator.userAgentData.getHighEntropyValues(['model']);
                 if (highEntropy.model) model = highEntropy.model;
-            } catch (e) {
-                console.warn("Client Hints blocked");
-            }
+            } catch (e) { }
         }
 
         if (model === 'Unknown Device') {
@@ -113,7 +111,6 @@ class VoiceTranslator {
                 model = 'PC';
             }
         }
-
         return `📱 **Device:** ${platform} ${model}\n📶 **Network:** ${network} | 🌍 **TZ:** ${tz}`;
     }
 
@@ -130,6 +127,33 @@ class VoiceTranslator {
 
     unlockAudioPlayer() {
         if (this.audioCtx.state === 'suspended') this.audioCtx.resume();
+    }
+
+    // ЛОГИКА ОЧЕРЕДИ: Играет файлы строго по одному!
+    async playNextAudio() {
+        if (this.isPlaying || this.audioQueue.length === 0) return;
+
+        this.isPlaying = true;
+        const arrayBuffer = this.audioQueue.shift(); // Достаем первый файл в очереди
+
+        try {
+            const audioBuffer = await this.audioCtx.decodeAudioData(arrayBuffer);
+            const source = this.audioCtx.createBufferSource();
+            source.buffer = audioBuffer;
+            source.connect(this.audioCtx.destination);
+
+            // Как только файл закончился - берем следующий
+            source.onended = () => {
+                this.isPlaying = false;
+                this.playNextAudio();
+            };
+
+            source.start(0);
+        } catch (err) {
+            console.error("Audio playback error:", err);
+            this.isPlaying = false;
+            this.playNextAudio();
+        }
     }
 
     async startRecording(sourceLang, targetLang, activeBtn, event) {
@@ -150,6 +174,10 @@ class VoiceTranslator {
         this.state.isRecording = true;
         this.state.ignoreRecording = false;
         this.state.recordStartTime = Date.now();
+
+        // Сбрасываем очередь перед новой записью
+        this.audioQueue = [];
+        this.isPlaying = false;
 
         this.ui.dotSource.style.color = this.langConfig[sourceLang].color;
         this.ui.dotTarget.style.color = this.langConfig[targetLang].color;
@@ -185,19 +213,12 @@ class VoiceTranslator {
                     this.ui.translated.innerText = data.text;
                 } else if (data.type === 'audio_done') {
                     this.updateStatus("Готово! (Можете продолжать)");
-                    // Сокет НЕ ЗАКРЫВАЕМ! Ждем новых фраз от пользователя
                 }
             } else if (e.data instanceof Blob) {
-                try {
-                    const arrayBuffer = await e.data.arrayBuffer();
-                    const audioBuffer = await this.audioCtx.decodeAudioData(arrayBuffer);
-                    const source = this.audioCtx.createBufferSource();
-                    source.buffer = audioBuffer;
-                    source.connect(this.audioCtx.destination);
-                    source.start(0);
-                } catch (err) {
-                    console.error("Audio API error:", err);
-                }
+                // Добавляем MP3 в очередь и дергаем плеер
+                const arrayBuffer = await e.data.arrayBuffer();
+                this.audioQueue.push(arrayBuffer);
+                this.playNextAudio();
             }
         };
 
@@ -209,9 +230,16 @@ class VoiceTranslator {
         if (MediaRecorder.isTypeSupported('audio/webm')) options.mimeType = 'audio/webm';
 
         this.mediaRecorder = new MediaRecorder(this.audioStream, options);
+
         this.mediaRecorder.ondataavailable = (e) => {
             if (e.data.size > 0 && this.ws && this.ws.readyState === WebSocket.OPEN) {
                 this.ws.send(e.data);
+            }
+        };
+
+        this.mediaRecorder.onstop = () => {
+            if (this.ws && this.ws.readyState === WebSocket.OPEN && !this.state.ignoreRecording) {
+                this.ws.send(JSON.stringify({ type: "stop_audio" }));
             }
         };
     }
@@ -222,8 +250,6 @@ class VoiceTranslator {
 
         const duration = Date.now() - this.state.recordStartTime;
 
-        // Порог случайного клика снижен с 500 до 200 мс!
-        // Теперь короткие слова типа "Labas" или "Да" не будут сбрасываться.
         if (duration < 200) {
             this.state.ignoreRecording = true;
             this.updateStatus("⚠️ Нужно УДЕРЖИВАТЬ кнопку");
@@ -234,25 +260,19 @@ class VoiceTranslator {
             }, 2000);
         } else {
             this.updateStatus("Ожидание перевода...");
-
-            // НОВОЕ: Говорим серверу, что мы закончили говорить.
-            // Это заставит Deepgram сразу перевести то, что зависло после паузы.
-            if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-                this.ws.send(JSON.stringify({ type: "stop_audio" }));
-            }
         }
 
         if (this.mediaRecorder.state === 'recording') {
             this.mediaRecorder.stop();
         }
 
-        // Увеличили задержку закрытия до 5 секунд (редкие языки или длинные хвосты могут переводиться дольше)
+        // Даем серверу 10 секунд на перевод и TTS, чтобы короткие фразы не прерывались!
         setTimeout(() => {
             if (this.ws && this.ws.readyState === WebSocket.OPEN) {
                 this.ws.close();
                 if (!this.state.isRecording) this.updateStatus("Зажмите кнопку для перевода");
             }
-        }, 5000);
+        }, 10000);
 
         this.ui.btnTop.classList.remove('recording');
         this.ui.btnBottom.classList.remove('recording');
