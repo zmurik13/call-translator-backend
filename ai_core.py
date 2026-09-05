@@ -124,32 +124,32 @@ async def web_translate_and_fix(raw_text, source_lang, target_lang):
 
 
 async def generate_speech(text, target_lang):
-	"""Генерирует MP3 поток через Edge-TTS (с хаком для паузы)."""
-	# Если на вход пришла пустая строка (LLM отсеяла шум), ничего не генерируем
-	if not text or text == "[LLM Error]":
-		return None, False
+    """Генерирует MP3 поток через Edge-TTS (мягкий фикс против проглатывания начала)."""
+    if not text or text == "[LLM Error]":
+       return None, False
 
-	selected_voice = VOICE_MAP.get(target_lang, "ru-RU-DmitryNeural")
+    selected_voice = VOICE_MAP.get(target_lang, "ru-RU-DmitryNeural")
 
-	# === ЖЕСТКИЙ ХАК ДЛЯ ПАУЗЫ ===
-	text = f". \n\n {text}"
+    # === МЯГКИЙ ХАК ДЛЯ ПАУЗЫ ===
+    # Используем троеточие вместо \n\n, чтобы польский голос не глотал первое слово
+    text = f"… {text}"
 
-	audio_stream = io.BytesIO()
+    audio_stream = io.BytesIO()
 
-	for attempt in range(3):
-		try:
-			tts = edge_tts.Communicate(text, selected_voice)
-			async for chunk in tts.stream():
-				if chunk["type"] == "audio":
-					audio_stream.write(chunk["data"])
-			if audio_stream.tell() > 0:
-				audio_stream.seek(0)
-				return audio_stream, True
-		except Exception as e:
-			print(f"⚠️ [TTS Error] попытка {attempt + 1}: {e}")
-			await asyncio.sleep(0.5)
+    for attempt in range(3):
+       try:
+          tts = edge_tts.Communicate(text, selected_voice)
+          async for chunk in tts.stream():
+             if chunk["type"] == "audio":
+                audio_stream.write(chunk["data"])
+          if audio_stream.tell() > 0:
+             audio_stream.seek(0)
+             return audio_stream, True
+       except Exception as e:
+          print(f"⚠️ [TTS Error] попытка {attempt + 1}: {e}")
+          await asyncio.sleep(0.5)
 
-	return None, False
+    return None, False
 
 
 async def detect_language_audio(audio_bytes, file_name, content_type):
