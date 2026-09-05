@@ -47,6 +47,12 @@ class VoiceTranslator {
         this.ui.pairSelector.addEventListener('change', () => this.updateUIPair());
 
         [this.ui.btnTop, this.ui.btnBottom].forEach(btn => {
+            // МАГИЯ ДЛЯ ТЕЛЕФОНОВ: Запрещаем выделение текста, лупу и меню
+            btn.style.touchAction = 'none';
+            btn.style.webkitUserSelect = 'none';
+            btn.style.userSelect = 'none';
+            btn.style.webkitTouchCallout = 'none';
+
             btn.addEventListener('contextmenu', e => e.preventDefault());
         });
 
@@ -218,24 +224,25 @@ class VoiceTranslator {
 
         if (duration < 500) {
             this.state.ignoreRecording = true;
-            this.updateStatus("Слишком короткое нажатие");
+            // Делаем явную подсказку, если человек просто кликнул, а не зажал
+            this.updateStatus("⚠️ Нужно УДЕРЖИВАТЬ кнопку");
             if (this.ws) this.ws.close();
             setTimeout(() => {
                 if (!this.state.isRecording) this.updateStatus("Зажмите кнопку для перевода");
-            }, 1500);
+            }, 2000);
         } else {
             this.updateStatus("Ожидание перевода...");
         }
 
         if (this.mediaRecorder.state === 'recording') this.mediaRecorder.stop();
 
-        // Закрываем сокет с задержкой, чтобы успел долететь финальный ответ
+        // Увеличили задержку закрытия до 5 секунд (редкие языки могут переводиться чуть дольше)
         setTimeout(() => {
             if (this.ws && this.ws.readyState === WebSocket.OPEN) {
                 this.ws.close();
                 if (!this.state.isRecording) this.updateStatus("Зажмите кнопку для перевода");
             }
-        }, 2500);
+        }, 5000);
 
         this.ui.btnTop.classList.remove('recording');
         this.ui.btnBottom.classList.remove('recording');
