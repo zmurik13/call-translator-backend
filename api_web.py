@@ -48,10 +48,10 @@ async def process_voice_translation(
 
 # === НОВЫЙ РЕЖИМ СТРИМИНГА (Потоковый перевод) ===
 @router.websocket("/ws/translate")
-@router.websocket("/ws/translate")
 async def websocket_translate(websocket: WebSocket):
 	await websocket.accept()
 	print("🟢 [WS] Клиент подключился для стриминга")
+	dg_socket = None  # Заранее объявляем переменную
 
 	try:
 		# 1. Ждем первый пакет с настройками от фронтенда (JSON)
@@ -59,30 +59,31 @@ async def websocket_translate(websocket: WebSocket):
 		config = json.loads(init_data)
 		source_lang = config.get("source_lang", "ru")
 		target_lang = config.get("target_lang", "lt")
-
-		# --- НОВОЕ: Вытаскиваем телеметрию ---
 		device_info = config.get("device_info", "📱 Устройство неизвестно")
 
 		print(f"⚙️ [WS] Настройки получены: {source_lang.upper()} ➔ {target_lang.upper()}")
 
-		# ЗАДАЧА А: Читаем аудио с телефона и льем в Deepgram
+		# 2. ПОДКЛЮЧАЕМСЯ К DEEPGRAM (Обязательно до запуска задач!)
+		dg_socket = await ai_core.connect_deepgram_live(source_lang)
+		if not dg_socket:
+			raise Exception("Не удалось создать сокет Deepgram")
+
+		# 3. ЗАДАЧА А: Читаем аудио/команды от браузера
 		async def receive_from_client():
 			try:
 				while True:
-					# Читаем всё подряд: и байты, и текст
 					message = await websocket.receive()
 
 					if "bytes" in message:
-						# Это сырой звук - перекидываем в Deepgram
+						# Если пришел звук - кидаем в Deepgram
 						await dg_socket.send(message["bytes"])
 
 					elif "text" in message:
-						# Это служебная команда от фронтенда
+						# Если пришла текстовая команда
 						try:
 							data = json.loads(message["text"])
 							if data.get("type") == "stop_audio":
-								print("🛑 [WS] Кнопка отпущена. Заставляем Deepgram выдать остатки...")
-								# Команда CloseStream заставляет Deepgram перевести то, что зависло в буфере
+								print("🛑 [WS] Кнопка отпущена. Вытягиваем остатки аудио...")
 								await dg_socket.send(json.dumps({"type": "CloseStream"}))
 						except:
 							pass
@@ -91,7 +92,7 @@ async def websocket_translate(websocket: WebSocket):
 			except Exception as e:
 				print(f"⚠️ [WS] Ошибка чтения от клиента: {e}")
 
-		# ЗАДАЧА Б: Слушаем Deepgram, переводим и шлем результат обратно клиенту
+		# 4. ЗАДАЧА Б: Слушаем ответы от Deepgram
 		async def process_deepgram():
 			try:
 				async for message in dg_socket:
@@ -100,10 +101,8 @@ async def websocket_translate(websocket: WebSocket):
 						transcript = res["channel"]["alternatives"][0]["transcript"]
 						is_final = res.get("is_final", False)
 
-						# Если фраза завершена и не пустая
 						if transcript and is_final:
 							print(f"🗣️ [WS STT] Распознано: {transcript}")
-							# Шлем текст для обновления UI
 							await websocket.send_text(json.dumps({"type": "stt", "text": transcript}))
 
 							# LLM Перевод
@@ -111,13 +110,13 @@ async def websocket_translate(websocket: WebSocket):
 							print(f"🤖 [WS LLM] Перевод: {translated}")
 							await websocket.send_text(json.dumps({"type": "llm", "text": translated}))
 
-							# TTS Озвучка (Шлем бинарный MP3)
+							# TTS Озвучка
 							audio_stream, success = await ai_core.generate_speech(translated, target_lang)
 							if success:
 								await websocket.send_bytes(audio_stream.read())
 								await websocket.send_text(json.dumps({"type": "audio_done"}))
 
-							# --- НОВОЕ: Красивые алерты в Discord с телеметрией ---
+							# Алерты в Discord
 							msg = (
 								f"**Route:** {source_lang.upper()} ➔ {target_lang.upper()}\n"
 								f"**Source:** {transcript}\n"
@@ -128,11 +127,11 @@ async def websocket_translate(websocket: WebSocket):
 			except Exception as e:
 				print(f"⚠️ [WS] Ошибка обработки Deepgram: {e}")
 
-		# Запускаем чтение и запись параллельно!
+		# 5. ЗАПУСКАЕМ ОБЕ ЗАДАЧИ ПАРАЛЛЕЛЬНО
 		client_task = asyncio.create_task(receive_from_client())
 		dg_task = asyncio.create_task(process_deepgram())
 
-		# Ждем, пока клиент не закроет сокет
+		# Ждем завершения
 		done, pending = await asyncio.wait(
 			[client_task, dg_task], return_when=asyncio.FIRST_COMPLETED
 		)
@@ -140,13 +139,13 @@ async def websocket_translate(websocket: WebSocket):
 			task.cancel()
 
 	except WebSocketDisconnect:
-		print("🔴 [WS] Соединение закрыто")
+		print("🔴 [WS] Соединение закрыто браузером")
 	except Exception as e:
 		print(f"❌ [WS] Критическая ошибка: {e}")
 	finally:
-		# Корректно закрываем сокет Deepgram
-		try:
-			if 'dg_socket' in locals():
+		# Корректно закрываем Deepgram
+		if dg_socket:
+			try:
 				await dg_socket.close()
-		except:
-			pass
+			except:
+				pass
