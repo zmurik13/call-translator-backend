@@ -5,6 +5,7 @@ import aiohttp
 from dotenv import load_dotenv
 from openai import AsyncOpenAI
 import edge_tts
+import websockets  # Добавь это в самый верх файла к остальным импортам
 
 # === ЗАГРУЗКА .ENV ===
 load_dotenv()
@@ -211,3 +212,26 @@ Instructions:
 	except Exception as e:
 		print(f"❌ [DETECTOR] Ошибка: {e}")
 		return "RU", ""
+
+
+# === WEB SOCKETS: DEEPGRAM LIVE ===
+async def connect_deepgram_live(source_lang):
+	"""
+	Открывает постоянный WebSocket-канал с Deepgram.
+	Настроен на ожидание логических пауз (endpointing).
+	"""
+	# Параметр endpointing=500 означает: "жди 500мс тишины, прежде чем сказать, что фраза закончена"
+	# interim_results=false означает: "не присылай мне обрывки слов, присылай только готовые фразы"
+	url = f"wss://api.deepgram.com/v1/listen?model=nova-3&smart_format=true&language={source_lang}&interim_results=false&endpointing=500"
+
+	headers = {
+		"Authorization": f"Token {DEEPGRAM_API_KEY}"
+	}
+
+	try:
+		ws = await websockets.connect(url, additional_headers=headers)
+		print(f"🔌 [STT] Соединение с Deepgram Live ({source_lang.upper()}) установлено!")
+		return ws
+	except Exception as e:
+		print(f"❌ [STT] Ошибка подключения к Deepgram Live: {e}")
+		raise e

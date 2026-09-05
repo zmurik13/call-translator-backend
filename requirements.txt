@@ -9,3 +9,4 @@ python-dotenv
 pyVoIP
 audioop-lts
 SpeechRecognition
+websockets
