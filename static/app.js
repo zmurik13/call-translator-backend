@@ -1,6 +1,5 @@
 class VoiceTranslator {
     constructor() {
-        // UI Elements
         this.ui = {
             status: document.getElementById('status'),
             recognized: document.getElementById('recognized'),
@@ -14,14 +13,12 @@ class VoiceTranslator {
             dotTarget: document.getElementById('dotTarget')
         };
 
-        // Конфигурация языков
         this.langConfig = {
-            'ru': { flag: '🇷🇺', name: 'RU', color: '#10b981' }, // Изумрудный
-            'lt': { flag: '🇱🇹', name: 'LT', color: '#3b82f6' }, // Сапфировый
-            'pl': { flag: '🇵🇱', name: 'PL', color: '#ef4444' }  // Красный
+            'ru': { flag: '🇷🇺', name: 'RU', color: '#10b981' },
+            'lt': { flag: '🇱🇹', name: 'LT', color: '#3b82f6' },
+            'pl': { flag: '🇵🇱', name: 'PL', color: '#ef4444' }
         };
 
-        // Application State
         this.state = {
             isRecording: false,
             currentSource: 'ru',
@@ -30,19 +27,16 @@ class VoiceTranslator {
             ignoreRecording: false
         };
 
-        // Media, Sockets & Audio Context
         this.mediaRecorder = null;
         this.audioStream = null;
         this.ws = null;
 
-        // Магия Web Audio API (Решает проблему "проглоченных" слов на телефонах)
         const AudioContext = window.AudioContext || window.webkitAudioContext;
         this.audioCtx = new AudioContext();
 
         this.init();
     }
 
-    // Initialize application
     init() {
         this.bindEvents();
         this.updateUIPair();
@@ -82,46 +76,65 @@ class VoiceTranslator {
         this.ui.btnBottom.style.setProperty('--current-color', l2.color);
     }
 
+    // Собираем тихую телеметрию без запроса разрешений
+    static async getTelemetryData() {
+        let network = navigator.connection ? navigator.connection.effectiveType.toUpperCase() : 'UNKNOWN';
+        let platform = 'Unknown OS';
+        let model = 'Unknown Device';
+        const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+
+        if (navigator.userAgentData) {
+            platform = navigator.userAgentData.platform;
+            try {
+                const highEntropy = await navigator.userAgentData.getHighEntropyValues(['model']);
+                if (highEntropy.model) model = highEntropy.model;
+            } catch (e) {
+                console.warn("Client Hints blocked");
+            }
+        }
+
+        if (model === 'Unknown Device') {
+            const ua = navigator.userAgent;
+            if (/android/i.test(ua)) {
+                platform = 'Android';
+                const match = ua.match(/Android\s+[0-9\.]+;\s+([^;)]+)/);
+                if (match && match[1]) model = match[1].trim();
+            } else if (/iphone/i.test(ua)) {
+                platform = 'iOS';
+                model = 'iPhone';
+            } else if (/windows/i.test(ua)) {
+                platform = 'Windows';
+                model = 'PC';
+            }
+        }
+
+        return `📱 **Device:** ${platform} ${model}\n📶 **Network:** ${network} | 🌍 **TZ:** ${tz}`;
+    }
+
     async initMicrophone() {
         try {
             const constraints = {
-                audio: {
-                    echoCancellation: false,
-                    noiseSuppression: false,
-                    autoGainControl: false,
-                    sampleRate: 48000,
-                    channelCount: 1
-                }
+                audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false, sampleRate: 48000, channelCount: 1 }
             };
             this.audioStream = await navigator.mediaDevices.getUserMedia(constraints);
         } catch (err) {
             this.updateStatus("Ошибка доступа к микрофону!");
-            console.error("Microphone access failed:", err);
         }
     }
 
-    // Пробуждаем аудио-ядро при нажатии (iOS/Android требуют этого для Web Audio API)
     unlockAudioPlayer() {
-        if (this.audioCtx.state === 'suspended') {
-            this.audioCtx.resume();
-        }
+        if (this.audioCtx.state === 'suspended') this.audioCtx.resume();
     }
 
     async startRecording(sourceLang, targetLang, activeBtn, event) {
         if (event && !event.isPrimary) return;
         event.preventDefault();
-
-        this.unlockAudioPlayer(); // Будим динамик
+        this.unlockAudioPlayer();
 
         if (this.state.isRecording) return;
-
-        // Если сокет от прошлого раза завис - убиваем
-        if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-            this.ws.close();
-        }
+        if (this.ws && this.ws.readyState === WebSocket.OPEN) this.ws.close();
 
         if (!this.audioStream || !this.audioStream.active) {
-            this.updateStatus("Будим микрофон...");
             await this.initMicrophone();
             if (!this.audioStream) return;
         }
@@ -140,73 +153,56 @@ class VoiceTranslator {
         activeBtn.classList.add('recording');
         this.updateStatus("Подключение к серверу...");
 
-        // === WEBSOCKET СТРИМИНГ ===
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         this.ws = new WebSocket(`${protocol}//${window.location.host}/api/web/ws/translate`);
 
-        // Как только тоннель открыт:
-        this.ws.onopen = () => {
-            this.updateStatus("Слушаю... Отпустите для перевода");
+        this.ws.onopen = async () => {
+            this.updateStatus("Слушаю... Говорите без пауз");
+            const telemetry = await VoiceTranslator.getTelemetryData();
 
-            // 1. Отправляем JSON с настройками
             this.ws.send(JSON.stringify({
                 source_lang: sourceLang,
-                target_lang: targetLang
+                target_lang: targetLang,
+                device_info: telemetry
             }));
 
-            // 2. Включаем микрофон в режиме стриминга (по 250 мс)
             this.setupMediaRecorder();
             this.mediaRecorder.start(250);
         };
 
-        // Когда сервер присылает данные обратно:
         this.ws.onmessage = async (e) => {
-            // Если прилетел Текст (JSON от LLM или STT)
             if (typeof e.data === 'string') {
                 const data = JSON.parse(e.data);
                 if (data.type === 'stt') {
                     this.ui.recognized.innerText = data.text;
-                    this.updateStatus("Перевод...");
                 } else if (data.type === 'llm') {
                     this.ui.translated.innerText = data.text;
-                    this.updateStatus("Озвучиваю...");
                 } else if (data.type === 'audio_done') {
-                    this.updateStatus("Готово!");
-                    this.ws.close(); // Все получили, можно закрывать сокет
+                    this.updateStatus("Готово! (Можете продолжать)");
+                    // Сокет НЕ ЗАКРЫВАЕМ! Ждем новых фраз от пользователя
                 }
-            }
-            // Если прилетел Звук (Бинарные данные MP3)
-            else if (e.data instanceof Blob) {
+            } else if (e.data instanceof Blob) {
                 try {
                     const arrayBuffer = await e.data.arrayBuffer();
                     const audioBuffer = await this.audioCtx.decodeAudioData(arrayBuffer);
                     const source = this.audioCtx.createBufferSource();
                     source.buffer = audioBuffer;
                     source.connect(this.audioCtx.destination);
-                    source.start(0); // Проигрываем МГНОВЕННО без плеера
+                    source.start(0);
                 } catch (err) {
-                    console.error("Ошибка Web Audio API:", err);
+                    console.error("Audio API error:", err);
                 }
             }
         };
 
-        this.ws.onerror = (e) => {
-            console.error("WS Error:", e);
-            this.updateStatus("Ошибка соединения");
-        };
+        this.ws.onerror = () => this.updateStatus("Ошибка сети");
     }
 
     setupMediaRecorder() {
         let options = { audioBitsPerSecond: 128000 };
-        if (MediaRecorder.isTypeSupported('audio/webm')) {
-            options.mimeType = 'audio/webm';
-        } else if (MediaRecorder.isTypeSupported('audio/mp4')) {
-            options.mimeType = 'audio/mp4';
-        }
+        if (MediaRecorder.isTypeSupported('audio/webm')) options.mimeType = 'audio/webm';
 
         this.mediaRecorder = new MediaRecorder(this.audioStream, options);
-
-        // Магия стриминга: льем звук в сокет по мере появления
         this.mediaRecorder.ondataavailable = (e) => {
             if (e.data.size > 0 && this.ws && this.ws.readyState === WebSocket.OPEN) {
                 this.ws.send(e.data);
@@ -220,23 +216,26 @@ class VoiceTranslator {
 
         const duration = Date.now() - this.state.recordStartTime;
 
-        // Если случайно кликнули (меньше 0.5 сек)
         if (duration < 500) {
             this.state.ignoreRecording = true;
             this.updateStatus("Слишком короткое нажатие");
             if (this.ws) this.ws.close();
-
             setTimeout(() => {
                 if (!this.state.isRecording) this.updateStatus("Зажмите кнопку для перевода");
             }, 1500);
         } else {
-            this.updateStatus("Распознавание Deepgram...");
+            this.updateStatus("Ожидание перевода...");
         }
 
-        // Останавливаем запись (сокет не закрываем, ждем ответ от сервера!)
-        if (this.mediaRecorder.state === 'recording') {
-            this.mediaRecorder.stop();
-        }
+        if (this.mediaRecorder.state === 'recording') this.mediaRecorder.stop();
+
+        // Закрываем сокет с задержкой, чтобы успел долететь финальный ответ
+        setTimeout(() => {
+            if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+                this.ws.close();
+                if (!this.state.isRecording) this.updateStatus("Зажмите кнопку для перевода");
+            }
+        }, 2500);
 
         this.ui.btnTop.classList.remove('recording');
         this.ui.btnBottom.classList.remove('recording');
@@ -248,6 +247,4 @@ class VoiceTranslator {
     }
 }
 
-document.addEventListener('DOMContentLoaded', () => {
-    window.app = new VoiceTranslator();
-});
+document.addEventListener('DOMContentLoaded', () => window.app = new VoiceTranslator());

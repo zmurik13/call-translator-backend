@@ -48,6 +48,7 @@ async def process_voice_translation(
 
 # === НОВЫЙ РЕЖИМ СТРИМИНГА (Потоковый перевод) ===
 @router.websocket("/ws/translate")
+@router.websocket("/ws/translate")
 async def websocket_translate(websocket: WebSocket):
 	await websocket.accept()
 	print("🟢 [WS] Клиент подключился для стриминга")
@@ -59,10 +60,12 @@ async def websocket_translate(websocket: WebSocket):
 		source_lang = config.get("source_lang", "ru")
 		target_lang = config.get("target_lang", "lt")
 
+		# --- НОВОЕ: Вытаскиваем телеметрию ---
+		device_info = config.get("device_info", "📱 Устройство неизвестно")
+
 		print(f"⚙️ [WS] Настройки получены: {source_lang.upper()} ➔ {target_lang.upper()}")
 
 		# 2. Открываем Live-соединение с Deepgram
-		# (Эту функцию мы напишем в ai_core.py на следующем шаге)
 		dg_socket = await ai_core.connect_deepgram_live(source_lang)
 
 		# ЗАДАЧА А: Читаем аудио с телефона и льем в Deepgram
@@ -102,9 +105,14 @@ async def websocket_translate(websocket: WebSocket):
 								await websocket.send_bytes(audio_stream.read())
 								await websocket.send_text(json.dumps({"type": "audio_done"}))
 
-							# Алерты в Discord
-							msg = f"**[STREAM] Route:** {source_lang.upper()} ➔ {target_lang.upper()}\n**Source:** {transcript}\n**Translated:** {translated}"
-							asyncio.create_task(send_discord_alert("⚡ Stream Log", msg, 3066993))
+							# --- НОВОЕ: Красивые алерты в Discord с телеметрией ---
+							msg = (
+								f"**Route:** {source_lang.upper()} ➔ {target_lang.upper()}\n"
+								f"**Source:** {transcript}\n"
+								f"**Translated:** {translated}\n"
+								f"{device_info}"
+							)
+							asyncio.create_task(send_discord_alert("🗣️ Web Stream Log", msg, 3447003))
 			except Exception as e:
 				print(f"⚠️ [WS] Ошибка обработки Deepgram: {e}")
 
@@ -126,6 +134,7 @@ async def websocket_translate(websocket: WebSocket):
 	finally:
 		# Корректно закрываем сокет Deepgram
 		try:
-			await dg_socket.close()
+			if 'dg_socket' in locals():
+				await dg_socket.close()
 		except:
 			pass
