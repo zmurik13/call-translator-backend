@@ -26,8 +26,11 @@ body {
     display: flex;
     flex-direction: column;
     align-items: center;
-    /* Блокируем двойной тап на iOS на уровне всего body */
-    touch-action: manipulation;
+    /* Запрещает pull-to-refresh и масштабирование на iOS */
+    overscroll-behavior-y: none;
+    -webkit-text-size-adjust: 100%;
+    /* Жестко блокируем свайпы и лупу для стабильности кнопок */
+    touch-action: none;
 }
 
 .header {

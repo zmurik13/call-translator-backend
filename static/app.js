@@ -34,6 +34,7 @@ class VoiceTranslator {
         // Очередь воспроизведения (играет файлы строго по одному)
         this.audioQueue = [];
         this.isPlaying = false;
+        this.unlocked = false; // Флаг для Apple-хака
 
         const AudioContext = window.AudioContext || window.webkitAudioContext;
         this.audioCtx = new AudioContext();
@@ -42,9 +43,17 @@ class VoiceTranslator {
     }
 
     init() {
+        this.checkInAppBrowser();
         this.bindEvents();
         this.updateUIPair();
         this.initMicrophone();
+    }
+
+    checkInAppBrowser() {
+        const ua = navigator.userAgent || navigator.vendor || window.opera;
+        if (ua.indexOf('Telegram') > -1 || ua.indexOf('FBAV') > -1 || ua.indexOf('Instagram') > -1) {
+            alert("⚠️ Внимание! Вы открыли переводчик внутри мессенджера (Telegram/FB). Apple и Android часто блокируют микрофон в этом режиме. Пожалуйста, нажмите на меню в углу экрана и выберите «Открыть в браузере» (Safari / Chrome).");
+        }
     }
 
     bindEvents() {
@@ -126,7 +135,20 @@ class VoiceTranslator {
     }
 
     unlockAudioPlayer() {
-        if (this.audioCtx.state === 'suspended') this.audioCtx.resume();
+        if (this.audioCtx.state === 'suspended') {
+            this.audioCtx.resume();
+        }
+
+        // --- Apple Hack ---
+        // Создаем 1 фрейм абсолютной тишины и проигрываем его.
+        if (!this.unlocked) {
+            const buffer = this.audioCtx.createBuffer(1, 1, 22050);
+            const node = this.audioCtx.createBufferSource();
+            node.buffer = buffer;
+            node.connect(this.audioCtx.destination);
+            node.start(0);
+            this.unlocked = true;
+        }
     }
 
     async playNextAudio() {
@@ -162,6 +184,15 @@ class VoiceTranslator {
         if (this.state.isRecording) return;
         if (this.ws && this.ws.readyState === WebSocket.OPEN) this.ws.close();
 
+        // === 🔥 ЖЕСТКИЙ ФИКС ДЛЯ iPHONE ===
+        const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+
+        // На iOS принудительно убиваем старый микрофон, чтобы он переподключился к железу
+        if (isIOS && this.audioStream) {
+            this.audioStream.getTracks().forEach(track => track.stop());
+            this.audioStream = null;
+        }
+
         if (!this.audioStream || !this.audioStream.active) {
             await this.initMicrophone();
             if (!this.audioStream) return;
@@ -179,7 +210,6 @@ class VoiceTranslator {
         this.ui.dotSource.style.color = this.langConfig[sourceLang].color;
         this.ui.dotTarget.style.color = this.langConfig[targetLang].color;
 
-        // Очищаем текст только при старте новой записи!
         this.ui.recognized.innerText = '...';
         this.ui.translated.innerText = '...';
 
@@ -207,10 +237,9 @@ class VoiceTranslator {
             if (typeof e.data === 'string') {
                 const data = JSON.parse(e.data);
 
-                // === МАГИЯ СКЛЕИВАНИЯ ТЕКСТА ===
                 if (data.type === 'stt') {
                     let current = this.ui.recognized.innerText;
-                    if (current === '...') current = ''; // Убираем точки при первом слове
+                    if (current === '...') current = '';
                     this.ui.recognized.innerText = current + (current ? ' ' : '') + data.text;
                 }
                 else if (data.type === 'llm') {
