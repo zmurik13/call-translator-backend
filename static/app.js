@@ -24,18 +24,20 @@ class VoiceTranslator {
         // Application State
         this.state = {
             isRecording: false,
-            isPlayerUnlocked: false,
             currentSource: 'ru',
             currentTarget: 'lt',
             recordStartTime: 0,
             ignoreRecording: false
         };
 
-        // Media & Audio
+        // Media, Sockets & Audio Context
         this.mediaRecorder = null;
         this.audioStream = null;
-        this.audioChunks = [];
-        this.globalPlayer = new Audio();
+        this.ws = null;
+
+        // Магия Web Audio API (Решает проблему "проглоченных" слов на телефонах)
+        const AudioContext = window.AudioContext || window.webkitAudioContext;
+        this.audioCtx = new AudioContext();
 
         this.init();
     }
@@ -47,34 +49,27 @@ class VoiceTranslator {
         this.initMicrophone();
     }
 
-    // Bind UI events using modern Pointer API
     bindEvents() {
-        // Слушаем изменение в выпадающем списке
         this.ui.pairSelector.addEventListener('change', () => this.updateUIPair());
 
-        // Prevent default context menu on long press
         [this.ui.btnTop, this.ui.btnBottom].forEach(btn => {
             btn.addEventListener('contextmenu', e => e.preventDefault());
         });
 
-        // Кнопка 1 (Сверху вниз)
         this.ui.btnTop.addEventListener('pointerdown', (e) => {
             const [lang1, lang2] = this.ui.pairSelector.value.split('-');
             this.startRecording(lang1, lang2, this.ui.btnTop, e);
         });
 
-        // Кнопка 2 (Снизу вверх)
         this.ui.btnBottom.addEventListener('pointerdown', (e) => {
             const [lang1, lang2] = this.ui.pairSelector.value.split('-');
             this.startRecording(lang2, lang1, this.ui.btnBottom, e);
         });
 
-        // Listen for pointerup globally
         window.addEventListener('pointerup', (e) => this.stopRecording(e));
         window.addEventListener('pointercancel', (e) => this.stopRecording(e));
     }
 
-    // Обновляем текст и цвета кнопок при смене пары языков
     updateUIPair() {
         const [lang1, lang2] = this.ui.pairSelector.value.split('-');
         const l1 = this.langConfig[lang1];
@@ -87,49 +82,6 @@ class VoiceTranslator {
         this.ui.btnBottom.style.setProperty('--current-color', l2.color);
     }
 
-    // Get FULL device telemetry (Оригинальная версия)
-    static async getTelemetryData() {
-        let network = navigator.connection ? navigator.connection.effectiveType.toUpperCase() : 'UNKNOWN';
-        let platform = 'Unknown OS';
-        let model = 'Unknown Device';
-
-        if (navigator.userAgentData) {
-            platform = navigator.userAgentData.platform;
-            try {
-                const highEntropy = await navigator.userAgentData.getHighEntropyValues(['model']);
-                if (highEntropy.model) {
-                    model = highEntropy.model;
-                }
-            } catch (e) {
-                console.warn("Client Hints blocked");
-            }
-        }
-
-        if (model === 'Unknown Device') {
-            const ua = navigator.userAgent;
-            if (/android/i.test(ua)) {
-                platform = 'Android';
-                const match = ua.match(/Android\s+[0-9\.]+;\s+([^;)]+)/);
-                if (match && match[1]) model = match[1].trim();
-            } else if (/iphone/i.test(ua)) {
-                platform = 'iOS';
-                model = 'iPhone';
-            } else if (/ipad/i.test(ua)) {
-                platform = 'iOS';
-                model = 'iPad';
-            } else if (/mac/i.test(ua)) {
-                platform = 'macOS';
-                model = 'Mac';
-            } else if (/windows/i.test(ua)) {
-                platform = 'Windows';
-                model = 'PC';
-            }
-        }
-
-        return `📱 Model: ${platform} ${model}\n📶 Network: ${network}`;
-    }
-
-    // Request microphone access
     async initMicrophone() {
         try {
             const constraints = {
@@ -148,24 +100,27 @@ class VoiceTranslator {
         }
     }
 
-    // Unlock audio context for iOS
+    // Пробуждаем аудио-ядро при нажатии (iOS/Android требуют этого для Web Audio API)
     unlockAudioPlayer() {
-        if (this.state.isPlayerUnlocked) return;
-        this.globalPlayer.src = "data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA";
-        this.globalPlayer.play().catch(err => console.log("Audio unlock failed", err));
-        this.state.isPlayerUnlocked = true;
+        if (this.audioCtx.state === 'suspended') {
+            this.audioCtx.resume();
+        }
     }
 
-    // Start recording process
     async startRecording(sourceLang, targetLang, activeBtn, event) {
         if (event && !event.isPrimary) return;
         event.preventDefault();
-        this.unlockAudioPlayer();
+
+        this.unlockAudioPlayer(); // Будим динамик
 
         if (this.state.isRecording) return;
 
-        // Wake up microphone if needed
-        if (!this.audioStream || !this.audioStream.active || this.audioStream.getAudioTracks()[0].readyState === 'ended') {
+        // Если сокет от прошлого раза завис - убиваем
+        if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+            this.ws.close();
+        }
+
+        if (!this.audioStream || !this.audioStream.active) {
             this.updateStatus("Будим микрофон...");
             await this.initMicrophone();
             if (!this.audioStream) return;
@@ -176,55 +131,109 @@ class VoiceTranslator {
         this.state.isRecording = true;
         this.state.ignoreRecording = false;
         this.state.recordStartTime = Date.now();
-        this.audioChunks = [];
 
-        // Устанавливаем цвета точек у текста
         this.ui.dotSource.style.color = this.langConfig[sourceLang].color;
         this.ui.dotTarget.style.color = this.langConfig[targetLang].color;
-
-        this.setupMediaRecorder();
-        this.mediaRecorder.start();
+        this.ui.recognized.innerText = '...';
+        this.ui.translated.innerText = '...';
 
         activeBtn.classList.add('recording');
-        this.updateStatus("Слушаю... Отпустите для перевода");
+        this.updateStatus("Подключение к серверу...");
+
+        // === WEBSOCKET СТРИМИНГ ===
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        this.ws = new WebSocket(`${protocol}//${window.location.host}/api/web/ws/translate`);
+
+        // Как только тоннель открыт:
+        this.ws.onopen = () => {
+            this.updateStatus("Слушаю... Отпустите для перевода");
+
+            // 1. Отправляем JSON с настройками
+            this.ws.send(JSON.stringify({
+                source_lang: sourceLang,
+                target_lang: targetLang
+            }));
+
+            // 2. Включаем микрофон в режиме стриминга (по 250 мс)
+            this.setupMediaRecorder();
+            this.mediaRecorder.start(250);
+        };
+
+        // Когда сервер присылает данные обратно:
+        this.ws.onmessage = async (e) => {
+            // Если прилетел Текст (JSON от LLM или STT)
+            if (typeof e.data === 'string') {
+                const data = JSON.parse(e.data);
+                if (data.type === 'stt') {
+                    this.ui.recognized.innerText = data.text;
+                    this.updateStatus("Перевод...");
+                } else if (data.type === 'llm') {
+                    this.ui.translated.innerText = data.text;
+                    this.updateStatus("Озвучиваю...");
+                } else if (data.type === 'audio_done') {
+                    this.updateStatus("Готово!");
+                    this.ws.close(); // Все получили, можно закрывать сокет
+                }
+            }
+            // Если прилетел Звук (Бинарные данные MP3)
+            else if (e.data instanceof Blob) {
+                try {
+                    const arrayBuffer = await e.data.arrayBuffer();
+                    const audioBuffer = await this.audioCtx.decodeAudioData(arrayBuffer);
+                    const source = this.audioCtx.createBufferSource();
+                    source.buffer = audioBuffer;
+                    source.connect(this.audioCtx.destination);
+                    source.start(0); // Проигрываем МГНОВЕННО без плеера
+                } catch (err) {
+                    console.error("Ошибка Web Audio API:", err);
+                }
+            }
+        };
+
+        this.ws.onerror = (e) => {
+            console.error("WS Error:", e);
+            this.updateStatus("Ошибка соединения");
+        };
     }
 
-    // Configure MediaRecorder
     setupMediaRecorder() {
         let options = { audioBitsPerSecond: 128000 };
-        let ext = 'webm';
-
         if (MediaRecorder.isTypeSupported('audio/webm')) {
             options.mimeType = 'audio/webm';
         } else if (MediaRecorder.isTypeSupported('audio/mp4')) {
             options.mimeType = 'audio/mp4';
-            ext = 'mp4';
         }
 
         this.mediaRecorder = new MediaRecorder(this.audioStream, options);
 
+        // Магия стриминга: льем звук в сокет по мере появления
         this.mediaRecorder.ondataavailable = (e) => {
-            if (e.data.size > 0) this.audioChunks.push(e.data);
+            if (e.data.size > 0 && this.ws && this.ws.readyState === WebSocket.OPEN) {
+                this.ws.send(e.data);
+            }
         };
-
-        this.mediaRecorder.onstop = async () => this.processAudio(ext, options);
     }
 
-    // Stop recording process
     stopRecording(event) {
         if (!this.state.isRecording || !this.mediaRecorder) return;
         event.preventDefault();
 
         const duration = Date.now() - this.state.recordStartTime;
 
+        // Если случайно кликнули (меньше 0.5 сек)
         if (duration < 500) {
             this.state.ignoreRecording = true;
             this.updateStatus("Слишком короткое нажатие");
+            if (this.ws) this.ws.close();
+
             setTimeout(() => {
                 if (!this.state.isRecording) this.updateStatus("Зажмите кнопку для перевода");
             }, 1500);
+        } else {
+            this.updateStatus("Распознавание Deepgram...");
         }
 
+        // Останавливаем запись (сокет не закрываем, ждем ответ от сервера!)
         if (this.mediaRecorder.state === 'recording') {
             this.mediaRecorder.stop();
         }
@@ -234,49 +243,11 @@ class VoiceTranslator {
         this.state.isRecording = false;
     }
 
-    // Send audio to backend
-    async processAudio(ext, options) {
-        if (this.state.ignoreRecording) {
-            this.audioChunks = [];
-            return;
-        }
-
-        this.updateStatus("Обработка (Groq + TTS)...");
-        const audioBlob = new Blob(this.audioChunks, options);
-        this.audioChunks = [];
-
-        const formData = new FormData();
-        formData.append('audio', audioBlob, `record.${ext}`);
-        formData.append('source_lang', this.state.currentSource);
-        formData.append('target_lang', this.state.currentTarget); // Отправляем целевой язык
-
-        const telemetry = await VoiceTranslator.getTelemetryData();
-        formData.append('device_info', telemetry);
-
-        try {
-            const response = await fetch('/api/web/translate-voice', { method: 'POST', body: formData });
-            if (!response.ok) throw new Error(await response.text());
-
-            this.ui.recognized.innerText = JSON.parse(`"${response.headers.get("X-Recognized-Text") || ""}"`);
-            this.ui.translated.innerText = JSON.parse(`"${response.headers.get("X-Translated-Text") || ""}"`);
-
-            const audioUrl = URL.createObjectURL(await response.blob());
-            this.globalPlayer.src = audioUrl;
-            this.globalPlayer.play();
-
-            this.updateStatus("Готово!");
-        } catch (err) {
-            this.updateStatus("Ошибка обработки");
-            console.error("API request failed:", err);
-        }
-    }
-
     updateStatus(message) {
         this.ui.status.innerText = message;
     }
 }
 
-// Initialize application
 document.addEventListener('DOMContentLoaded', () => {
     window.app = new VoiceTranslator();
 });
