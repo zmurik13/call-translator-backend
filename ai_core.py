@@ -120,12 +120,13 @@ async def web_translate_and_fix(raw_text, source_lang, target_lang):
 	print(f"🌐 [WEB IN] Маршрут {source_lang.upper()} -> {target_lang.upper()} | Текст: {raw_text}")
 
 	web_system_prompt = f"""You are an elite speech translator.
-    CRITICAL INSTRUCTIONS:
-    1. FIX STT ERRORS FIRST: The input text comes from speech-to-text and contains severe phonetic errors (e.g., hearing "Lamba sritys" instead of "Labas rytas", or "Tikiniame" instead of "Tikriname"). You MUST reconstruct the logical original phrase based on phonetic similarity BEFORE translating.
-    2. CONTEXT: You work at RATŲ BAZĖ. Use this context to fix garbled audio (e.g., 'padangų'). But if the text is clearly about something else, translate it literally.
-    3. Translate strictly from {source_lang.upper()} to {target_lang.upper()}. 
-    4. Output ONLY the final translated text. No explanations. No markdown formatting, no quotes, no code blocks. Even if the input is a single short word like 'Yes' or 'No', translate it directly without any additional text.
-    5. ANTI-APOLOGY RULE: NEVER apologize. If the input is complete gibberish, output an empty string."""
+	    CRITICAL INSTRUCTIONS:
+	    1. FIX STT ERRORS FIRST: The input text comes from speech-to-text and contains severe phonetic errors (e.g., hearing "Lamba sritys" instead of "Labas rytas", or "Tikiniame" instead of "Tikriname"). You MUST reconstruct the logical original phrase based on phonetic similarity BEFORE translating.
+	    2. CONTEXT: You work at RATŲ BAZĖ. Use this context to fix garbled audio (e.g., 'padangų'). But if the text is clearly about something else, translate it literally.
+	    3. Translate strictly from {source_lang.upper()} to {target_lang.upper()}. 
+	    4. PRESERVE GRAMMATICAL PERSON: If the input is impersonal or passive, keep it that way in the translation. NEVER translate third-person or impersonal statements into first-person ("I"). For example, "не записал текст" should be translated referring to the system or third party, NOT as "I did not record".
+	    5. Output ONLY the final translated text. No explanations. No markdown formatting, no quotes, no code blocks. Even if the input is a single short word like 'Yes' or 'No', translate it directly without any additional text.
+	    6. ANTI-APOLOGY RULE: NEVER apologize. If the input is complete gibberish, output an empty string."""
 
 	messages = [
 		{"role": "system", "content": web_system_prompt},
@@ -224,21 +225,20 @@ Instructions:
 
 # === WEB SOCKETS: DEEPGRAM LIVE ===
 async def connect_deepgram_live(source_lang):
-	"""
-	Открывает постоянный WebSocket-канал с Deepgram.
-	Настроен на ожидание логических пауз (endpointing).
-	"""
-	# Параметр endpointing=1500 (Увеличено, чтобы не резать слова)
-	url = f"wss://api.deepgram.com/v1/listen?model=nova-2&smart_format=true&language={source_lang}&interim_results=false&endpointing=1500"
+    """
+    Открывает постоянный WebSocket-канал с Deepgram.
+    Настроен на ожидание логических пауз 2.5 сек и реал-тайм стриминг.
+    """
+    url = f"wss://api.deepgram.com/v1/listen?model=nova-2&smart_format=true&language={source_lang}&interim_results=true&endpointing=2500"
 
-	headers = {
-		"Authorization": f"Token {DEEPGRAM_API_KEY}"
-	}
+    headers = {
+       "Authorization": f"Token {DEEPGRAM_API_KEY}"
+    }
 
-	try:
-		ws = await websockets.connect(url, additional_headers=headers)
-		print(f"🔌 [STT] Соединение с Deepgram Live ({source_lang.upper()}) установлено!")
-		return ws
-	except Exception as e:
-		print(f"❌ [STT] Ошибка подключения к Deepgram Live: {e}")
-		raise e
+    try:
+       ws = await websockets.connect(url, additional_headers=headers)
+       print(f"🔌 [STT] Соединение с Deepgram Live ({source_lang.upper()}) установлено!")
+       return ws
+    except Exception as e:
+       print(f"❌ [STT] Ошибка подключения к Deepgram Live: {e}")
+       raise e

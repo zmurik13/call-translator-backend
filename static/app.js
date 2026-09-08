@@ -31,10 +31,9 @@ class VoiceTranslator {
         this.audioStream = null;
         this.ws = null;
 
-        // Очередь воспроизведения (играет файлы строго по одному)
         this.audioQueue = [];
         this.isPlaying = false;
-        this.unlocked = false; // Флаг для Apple-хака
+        this.unlocked = false;
 
         const AudioContext = window.AudioContext || window.webkitAudioContext;
         this.audioCtx = new AudioContext();
@@ -139,8 +138,6 @@ class VoiceTranslator {
             this.audioCtx.resume();
         }
 
-        // --- Apple Hack ---
-        // Создаем 1 фрейм абсолютной тишины и проигрываем его.
         if (!this.unlocked) {
             const buffer = this.audioCtx.createBuffer(1, 1, 22050);
             const node = this.audioCtx.createBufferSource();
@@ -151,8 +148,9 @@ class VoiceTranslator {
         }
     }
 
+    // 🔥 ИЗМЕНЕНИЕ 1: Блокируем звук, пока палец на кнопке
     async playNextAudio() {
-        if (this.isPlaying || this.audioQueue.length === 0) return;
+        if (this.isPlaying || this.audioQueue.length === 0 || this.state.isRecording) return;
 
         this.isPlaying = true;
         const arrayBuffer = this.audioQueue.shift();
@@ -182,12 +180,21 @@ class VoiceTranslator {
         this.unlockAudioPlayer();
 
         if (this.state.isRecording) return;
-        if (this.ws && this.ws.readyState === WebSocket.OPEN) this.ws.close();
 
-        // === 🔥 ЖЕСТКИЙ ФИКС ДЛЯ iPHONE ===
+        // 🔥 ИЗМЕНЕНИЕ 2: Мягкая отвязка сокета
+        if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+            const oldWs = this.ws;
+            oldWs.onmessage = async (e) => {
+                if (e.data instanceof Blob) {
+                    const arrayBuffer = await e.data.arrayBuffer();
+                    this.audioQueue.push(arrayBuffer);
+                    this.playNextAudio(); // Попытается запустить, но блокировка его остановит
+                }
+            };
+        }
+
         const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 
-        // На iOS принудительно убиваем старый микрофон, чтобы он переподключился к железу
         if (isIOS && this.audioStream) {
             this.audioStream.getTracks().forEach(track => track.stop());
             this.audioStream = null;
@@ -301,16 +308,20 @@ class VoiceTranslator {
             this.mediaRecorder.stop();
         }
 
+        const currentWs = this.ws;
         setTimeout(() => {
-            if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-                this.ws.close();
+            if (currentWs && currentWs.readyState === WebSocket.OPEN) {
+                currentWs.close();
                 if (!this.state.isRecording) this.updateStatus("Зажмите кнопку для перевода");
             }
         }, 10000);
 
         this.ui.btnTop.classList.remove('recording');
         this.ui.btnBottom.classList.remove('recording');
+
+        // 🔥 ИЗМЕНЕНИЕ 3: Снимаем блокировку и даем команду на воспроизведение очереди
         this.state.isRecording = false;
+        this.playNextAudio();
     }
 
     updateStatus(message) {
