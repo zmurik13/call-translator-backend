@@ -158,13 +158,22 @@ body {
     gap: 8px;
 }
 
+/* Панель распознанного текста с прокруткой */
 #recognized {
     margin-top: 10px;
     color: #cbd5e1;
     font-size: 1.05em;
     line-height: 1.4;
+
+    max-height: 15vh;
+    overflow-y: auto;
+    word-wrap: break-word;
+    white-space: pre-wrap;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
 }
 
+/* Панель перевода с прокруткой (чуть больше места) */
 #translated {
     margin-top: 10px;
     color: #ffffff;
@@ -172,6 +181,21 @@ body {
     font-weight: 500;
     line-height: 1.4;
     text-shadow: 0 0 20px rgba(255,255,255,0.1);
+
+    max-height: 25vh;
+    overflow-y: auto;
+    word-wrap: break-word;
+    white-space: pre-wrap;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
 }
 
-.text-box:last-child { margin-bottom: 40px; }
+.text-box:last-child {
+    margin-bottom: 40px;
+}
+
+/* Скрываем системные ползунки для Chrome/Safari/Edge, оставляя свайп */
+#recognized::-webkit-scrollbar,
+#translated::-webkit-scrollbar {
+    display: none;
+}
