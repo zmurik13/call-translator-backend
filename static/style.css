@@ -171,9 +171,12 @@ body {
     white-space: pre-wrap;
     -webkit-overflow-scrolling: touch;
     scrollbar-width: none;
+
+    /* 🔥 МАГИЯ ДЛЯ ПЛАВНОГО СВАЙПА: */
+    touch-action: pan-y;
 }
 
-/* Панель перевода с прокруткой (чуть больше места) */
+/* Панель перевода с прокруткой */
 #translated {
     margin-top: 10px;
     color: #ffffff;
@@ -188,6 +191,9 @@ body {
     white-space: pre-wrap;
     -webkit-overflow-scrolling: touch;
     scrollbar-width: none;
+
+    /* 🔥 МАГИЯ ДЛЯ ПЛАВНОГО СВАЙПА: */
+    touch-action: pan-y;
 }
 
 .text-box:last-child {
