@@ -39,7 +39,6 @@ VOICE_MAP = {
 HALLUCINATIONS = ["продолжение следует", "подписывайтесь на канал", "to be continued", "amara.org",
                   "спасибо за просмотр"]
 
-
 # === УМНЫЙ РОУТЕР LLM С ЗАПАСКОЙ ===
 async def _call_llm(messages, temperature=0.2):
 	"""Вызывает GPT-4o-mini. При любой ошибке бесшовно переключается на Gemini Flash."""
@@ -65,9 +64,7 @@ async def _call_llm(messages, temperature=0.2):
 			print(f"❌ [LLM] Ошибка обоих LLM-моделей: {fallback_err}")
 			return "[LLM Error]"
 
-
 # === ФУНКЦИИ ЯДРА ===
-
 async def transcribe_audio(audio_bytes, file_name, content_type, source_lang):
 	"""Идеальные уши от Deepgram Nova-3 (Без параноидального режима диктанта)."""
 	try:
@@ -97,7 +94,6 @@ async def transcribe_audio(audio_bytes, file_name, content_type, source_lang):
 		print(f"❌ [STT] Deepgram Error: {e}")
 		return "[STT Error]", True
 
-
 async def translate_and_fix(raw_text, source_lang):
 	"""LLM переводчик для PBX."""
 	# Логируем то, что пришло со звонка
@@ -112,7 +108,6 @@ async def translate_and_fix(raw_text, source_lang):
 	# Логируем результат перевода
 	print(f"🤖 [PBX OUT] Перевод: {translated}")
 	return translated
-
 
 async def web_translate_and_fix(raw_text, source_lang, target_lang):
 	"""Универсальный LLM переводчик для WEB."""
@@ -145,7 +140,6 @@ async def web_translate_and_fix(raw_text, source_lang, target_lang):
 	print(f"✅ [WEB OUT] Перевод: {translated}")
 	return translated
 
-
 async def generate_speech(text, target_lang):
 	"""Генерирует MP3 поток через Edge-TTS (мягкий фикс против проглатывания начала)."""
 	if not text or text == "[LLM Error]":
@@ -174,13 +168,12 @@ async def generate_speech(text, target_lang):
 
 	return None, False
 
-
 async def detect_language_audio(audio_bytes, file_name, content_type):
 	"""Детектор языка: Deepgram (Литовский режим/Транслит) + GPT-4o-mini."""
 	try:
 		# УБРАЛИ detect_language=true! ЖЕСТКО ставим language=lt.
 		# Включаем автоматическое определение языка!
-		url = "https://api.deepgram.com/v1/listen?model=nova-3&smart_format=true&detect_language=true"
+		url = "[https://api.deepgram.com/v1/listen?model=nova-3&smart_format=true&detect_language=true](https://api.deepgram.com/v1/listen?model=nova-3&smart_format=true&detect_language=true)"
 		headers = {
 			"Authorization": f"Token {DEEPGRAM_API_KEY}",
 			"Content-Type": content_type or "audio/wav"
@@ -222,14 +215,13 @@ Instructions:
 		print(f"❌ [DETECTOR] Ошибка: {e}")
 		return "RU", ""
 
-
 # === WEB SOCKETS: DEEPGRAM LIVE ===
 async def connect_deepgram_live(source_lang):
     """
     Открывает постоянный WebSocket-канал с Deepgram.
     Настроен на ожидание логических пауз 2.5 сек и реал-тайм стриминг.
     """
-    url = f"wss://api.deepgram.com/v1/listen?model=nova-2&smart_format=true&language={source_lang}&interim_results=true&endpointing=2500"
+    url = f"wss://[api.deepgram.com/v1/listen?model=nova-2&smart_format=true&language=](https://api.deepgram.com/v1/listen?model=nova-2&smart_format=true&language=){source_lang}&interim_results=true&endpointing=2500"
 
     headers = {
        "Authorization": f"Token {DEEPGRAM_API_KEY}"
