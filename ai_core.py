@@ -219,7 +219,7 @@ async def connect_deepgram_live(source_lang):
 	"""
 	os.environ["no_proxy"] = "*"
 
-	url = f"wss://[api.deepgram.com/v1/listen?model=nova-2&smart_format=true&language=](https://api.deepgram.com/v1/listen?model=nova-2&smart_format=true&language=){source_lang}&interim_results=true&endpointing=2500"
+	url = f"wss://api.deepgram.com/v1/listen?model=nova-2&smart_format=true&language={source_lang}&interim_results=true&endpointing=2500"
 
 	print(f"🛠 [DEBUG] URL для Deepgram: {url}")
 
@@ -228,4 +228,9 @@ async def connect_deepgram_live(source_lang):
 	}
 
 	try:
-		ws = await websockets.
+		ws = await websockets.connect(url, additional_headers=headers)
+		print(f"🔌 [STT] Соединение с Deepgram Live ({source_lang.upper()}) установлено!")
+		return ws
+	except Exception as e:
+		print(f"❌ [STT] Ошибка подключения к Deepgram Live: {e}")
+		raise e
