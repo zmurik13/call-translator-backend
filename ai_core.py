@@ -169,15 +169,15 @@ async def generate_speech(text, target_lang):
 	return None, False
 
 async def detect_language_audio(audio_bytes, file_name, content_type):
-	"""Детектор языка: Deepgram (Литовский режим/Транслит) + GPT-4o-mini."""
-	try:
-		# УБРАЛИ detect_language=true! ЖЕСТКО ставим language=lt.
-		# Включаем автоматическое определение языка!
-		url = "[https://api.deepgram.com/v1/listen?model=nova-3&smart_format=true&detect_language=true](https://api.deepgram.com/v1/listen?model=nova-3&smart_format=true&detect_language=true)"
-		headers = {
-			"Authorization": f"Token {DEEPGRAM_API_KEY}",
-			"Content-Type": content_type or "audio/wav"
-		}
+    """Детектор языка: Deepgram (Литовский режим/Транслит) + GPT-4o-mini."""
+    try:
+        # 👇 УБИРАЕМ detect_language=true и ЖЕСТКО СТАВИМ language=lt
+        url = "https://api.deepgram.com/v1/listen?model=nova-3&smart_format=true&language=lt"
+        headers = {
+            "Authorization": f"Token {DEEPGRAM_API_KEY}",
+            "Content-Type": content_type or "audio/wav"
+        }
+        # ... остальной код функции оставляем без изменений ...
 
 		async with aiohttp.ClientSession() as session:
 			async with session.post(url, headers=headers, data=audio_bytes) as response:
