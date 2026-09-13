@@ -167,9 +167,10 @@ async def generate_speech(text, target_lang):
 
 
 async def detect_language_audio(audio_bytes, file_name, content_type):
-    """Детектор языка: Deepgram + Фонетический LLM-анализ бессмыслицы."""
+    """Детектор языка: Жестко RU-модель + LLM для поиска литовского транслита."""
     try:
-        url = "https://api.deepgram.com/v1/listen?model=nova-3&smart_format=true&detect_language=true"
+        # Убираем detect_language, ставим жестко RU.
+        url = "https://api.deepgram.com/v1/listen?model=nova-3&smart_format=true&language=ru"
         headers = {
             "Authorization": f"Token {DEEPGRAM_API_KEY}",
             "Content-Type": content_type or "audio/wav"
@@ -188,28 +189,14 @@ async def detect_language_audio(audio_bytes, file_name, content_type):
         if not raw_text:
             return "RU", "[Тишина / Шум]"
 
-        # 👇 НОВЫЙ ПРОМПТ: Учим ИИ распознавать "С камень надел по дому"
-        classifier_prompt = f"""You are a phonetic language detector for a tire service in Lithuania.
+        # 👇 Умный классификатор, который ищет литовский транслит
+        classifier_prompt = f"""You are a language router for a tire service in Lithuania.
 Analyze the transcription: "{raw_text}"
-
-The speech-to-text AI is hallucinating due to 8kHz phone audio.
-If the client speaks Lithuanian, the AI often outputs absolute nonsense in Russian or Turkish because it tries to match the phonetic sounds.
-
-Examples of Lithuanian hallucinated by AI:
-- "С камень надел по дому" -> Phonetically this is "Skambinu dėl padangų" (LT)
-- "Medres etsem, ezberlemeyen yok..." -> Turkish gibberish means the AI failed to understand Lithuanian (LT)
-- "Лаба диена", "Свейки" -> LT
-
-Examples of Russian:
-- "Здравствуйте, мне нужны шины" -> RU
-- "Добрый день", "Zdrastvuite" -> RU
-
-CRITICAL LOGIC:
-1. If the text consists of Russian words but makes ZERO logical sense as a sentence (like "С камень надел по дому"), it is a hallucinated Lithuanian phrase -> output LT.
-2. If the text is in a random language like Turkish or pure gibberish, assume it is hallucinated Lithuanian -> output LT.
-3. ONLY if it is CLEAR, logical Russian (or transliterated Russian), output RU.
-
-Output ONLY TWO LETTERS: LT or RU."""
+Instructions:
+1. The audio was transcribed using a strictly RUSSIAN speech-to-text model.
+2. If the user spoke Russian, it will look like normal Russian (e.g., "Добрый вечер, по поводу колес", "Здравствуйте"). -> Output RU.
+3. If the user spoke Lithuanian, the Russian model will write it phonetically using Cyrillic letters (e.g., "Лаба диена", "Скамбину дел падангу", "Свейки", "Падангу"). -> Output LT.
+4. Output ONLY TWO LETTERS: LT or RU. Do not explain anything."""
 
         messages = [{"role": "user", "content": classifier_prompt}]
         lang_decision = await _call_llm(messages, temperature=0.0)
