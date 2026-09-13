@@ -37,7 +37,7 @@ VOICE_MAP = {
 
 # Оставили только жесткие галлюцинации. Короткие слова теперь разрешены.
 HALLUCINATIONS = ["продолжение следует", "подписывайтесь на канал", "to be continued", "amara.org",
-                  "спасибо за просмотр"]
+				  "спасибо за просмотр"]
 
 # === УМНЫЙ РОУТЕР LLM С ЗАПАСКОЙ ===
 async def _call_llm(messages, temperature=0.2):
@@ -115,13 +115,13 @@ async def web_translate_and_fix(raw_text, source_lang, target_lang):
 	print(f"🌐 [WEB IN] Маршрут {source_lang.upper()} -> {target_lang.upper()} | Текст: {raw_text}")
 
 	web_system_prompt = f"""You are an elite speech translator.
-	    CRITICAL INSTRUCTIONS:
-	    1. FIX STT ERRORS FIRST: The input text comes from speech-to-text and contains severe phonetic errors (e.g., hearing "Lamba sritys" instead of "Labas rytas", or "Tikiniame" instead of "Tikriname"). You MUST reconstruct the logical original phrase based on phonetic similarity BEFORE translating.
-	    2. CONTEXT: You work at RATŲ BAZĖ. Use this context to fix garbled audio (e.g., 'padangų'). But if the text is clearly about something else, translate it literally.
-	    3. Translate strictly from {source_lang.upper()} to {target_lang.upper()}. 
-	    4. PRESERVE GRAMMATICAL PERSON: If the input is impersonal or passive, keep it that way in the translation. NEVER translate third-person or impersonal statements into first-person ("I"). For example, "не записал текст" should be translated referring to the system or third party, NOT as "I did not record".
-	    5. Output ONLY the final translated text. No explanations. No markdown formatting, no quotes, no code blocks. Even if the input is a single short word like 'Yes' or 'No', translate it directly without any additional text.
-	    6. ANTI-APOLOGY RULE: NEVER apologize. If the input is complete gibberish, output an empty string."""
+		CRITICAL INSTRUCTIONS:
+		1. FIX STT ERRORS FIRST: The input text comes from speech-to-text and contains severe phonetic errors (e.g., hearing "Lamba sritys" instead of "Labas rytas", or "Tikiniame" instead of "Tikriname"). You MUST reconstruct the logical original phrase based on phonetic similarity BEFORE translating.
+		2. CONTEXT: You work at RATŲ BAZĖ. Use this context to fix garbled audio (e.g., 'padangų'). But if the text is clearly about something else, translate it literally.
+		3. Translate strictly from {source_lang.upper()} to {target_lang.upper()}. 
+		4. PRESERVE GRAMMATICAL PERSON: If the input is impersonal or passive, keep it that way in the translation. NEVER translate third-person or impersonal statements into first-person ("I"). For example, "не записал текст" should be translated referring to the system or third party, NOT as "I did not record".
+		5. Output ONLY the final translated text. No explanations. No markdown formatting, no quotes, no code blocks. Even if the input is a single short word like 'Yes' or 'No', translate it directly without any additional text.
+		6. ANTI-APOLOGY RULE: NEVER apologize. If the input is complete gibberish, output an empty string."""
 
 	messages = [
 		{"role": "system", "content": web_system_prompt},
@@ -171,29 +171,26 @@ async def generate_speech(text, target_lang):
 async def detect_language_audio(audio_bytes, file_name, content_type):
     """Детектор языка: Deepgram (Литовский режим/Транслит) + GPT-4o-mini."""
     try:
-        # 👇 УБИРАЕМ detect_language=true и ЖЕСТКО СТАВИМ language=lt
         url = "https://api.deepgram.com/v1/listen?model=nova-3&smart_format=true&language=lt"
         headers = {
             "Authorization": f"Token {DEEPGRAM_API_KEY}",
             "Content-Type": content_type or "audio/wav"
         }
-        # ... остальной код функции оставляем без изменений ...
 
-		async with aiohttp.ClientSession() as session:
-			async with session.post(url, headers=headers, data=audio_bytes) as response:
-				res_json = await response.json()
-				if "results" in res_json and res_json["results"]["channels"]:
-					raw_text = res_json["results"]["channels"][0]["alternatives"][0]["transcript"].strip()
-				else:
-					raw_text = ""
+        async with aiohttp.ClientSession() as session:
+            async with session.post(url, headers=headers, data=audio_bytes) as response:
+                res_json = await response.json()
+                if "results" in res_json and res_json["results"]["channels"]:
+                    raw_text = res_json["results"]["channels"][0]["alternatives"][0]["transcript"].strip()
+                else:
+                    raw_text = ""
 
-		print(f"🕵️ [DETECTOR] Deepgram услышал текст: '{raw_text}'")
+        print(f"🕵️ [DETECTOR] Deepgram услышал текст: '{raw_text}'")
 
-		if not raw_text:
-			return "RU", "[Тишина / Шум]"
+        if not raw_text:
+            return "RU", "[Тишина / Шум]"
 
-		# 2. LLM MAGIC: Классифицируем
-		classifier_prompt = f"""You are a language detection router for an auto service in Lithuania.
+        classifier_prompt = f"""You are a language detection router for an auto service in Lithuania.
 Analyze the following transcription: "{raw_text}"
 Instructions:
 - The text might be Lithuanian OR Russian written in Latin letters (e.g., 'zdrastvuite').
@@ -201,19 +198,19 @@ Instructions:
 - If it is Russian (even if transliterated), return 'RU'.
 - Output ONLY TWO LETTERS: LT or RU. Do not explain anything."""
 
-		messages = [{"role": "user", "content": classifier_prompt}]
-		lang_decision = await _call_llm(messages, temperature=0.0)
+        messages = [{"role": "user", "content": classifier_prompt}]
+        lang_decision = await _call_llm(messages, temperature=0.0)
 
-		if "LT" in lang_decision.upper():
-			print(f"✅ [DETECTOR] LLM постановила: LT (Анализ текста: {raw_text})")
-			return "LT", raw_text
-		else:
-			print(f"✅ [DETECTOR] LLM постановила: RU (Анализ текста: {raw_text})")
-			return "RU", raw_text
+        if "LT" in lang_decision.upper():
+            print(f"✅ [DETECTOR] LLM постановила: LT (Анализ текста: {raw_text})")
+            return "LT", raw_text
+        else:
+            print(f"✅ [DETECTOR] LLM постановила: RU (Анализ текста: {raw_text})")
+            return "RU", raw_text
 
-	except Exception as e:
-		print(f"❌ [DETECTOR] Ошибка: {e}")
-		return "RU", ""
+    except Exception as e:
+        print(f"❌ [DETECTOR] Ошибка: {e}")
+        return "RU", ""
 
 # === WEB SOCKETS: DEEPGRAM LIVE ===
 async def connect_deepgram_live(source_lang):
