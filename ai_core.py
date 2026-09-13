@@ -37,7 +37,8 @@ VOICE_MAP = {
 
 # Оставили только жесткие галлюцинации. Короткие слова теперь разрешены.
 HALLUCINATIONS = ["продолжение следует", "подписывайтесь на канал", "to be continued", "amara.org",
-				  "спасибо за просмотр"]
+                  "спасибо за просмотр"]
+
 
 # === УМНЫЙ РОУТЕР LLM С ЗАПАСКОЙ ===
 async def _call_llm(messages, temperature=0.2):
@@ -64,11 +65,11 @@ async def _call_llm(messages, temperature=0.2):
 			print(f"❌ [LLM] Ошибка обоих LLM-моделей: {fallback_err}")
 			return "[LLM Error]"
 
+
 # === ФУНКЦИИ ЯДРА ===
 async def transcribe_audio(audio_bytes, file_name, content_type, source_lang):
-	"""Идеальные уши от Deepgram Nova-3 (Без параноидального режима диктанта)."""
+	"""Идеальные уши от Deepgram Nova-3."""
 	try:
-		# Убрали dictation и filler_words, оставили только smart_format
 		url = f"https://api.deepgram.com/v1/listen?model=nova-3&smart_format=true&language={source_lang}"
 		headers = {
 			"Authorization": f"Token {DEEPGRAM_API_KEY}",
@@ -94,9 +95,9 @@ async def transcribe_audio(audio_bytes, file_name, content_type, source_lang):
 		print(f"❌ [STT] Deepgram Error: {e}")
 		return "[STT Error]", True
 
+
 async def translate_and_fix(raw_text, source_lang):
 	"""LLM переводчик для PBX."""
-	# Логируем то, что пришло со звонка
 	print(f"📞 [PBX IN] {source_lang.upper()}: {raw_text}")
 
 	messages = [
@@ -105,23 +106,24 @@ async def translate_and_fix(raw_text, source_lang):
 	]
 	translated = await _call_llm(messages, temperature=0.2)
 
-	# Логируем результат перевода
 	print(f"🤖 [PBX OUT] Перевод: {translated}")
 	return translated
 
+
 async def web_translate_and_fix(raw_text, source_lang, target_lang):
 	"""Универсальный LLM переводчик для WEB."""
-	# Логируем веб-запрос
 	print(f"🌐 [WEB IN] Маршрут {source_lang.upper()} -> {target_lang.upper()} | Текст: {raw_text}")
 
+	os.environ["no_proxy"] = "*"
+
 	web_system_prompt = f"""You are an elite speech translator.
-		CRITICAL INSTRUCTIONS:
-		1. FIX STT ERRORS FIRST: The input text comes from speech-to-text and contains severe phonetic errors (e.g., hearing "Lamba sritys" instead of "Labas rytas", or "Tikiniame" instead of "Tikriname"). You MUST reconstruct the logical original phrase based on phonetic similarity BEFORE translating.
-		2. CONTEXT: You work at RATŲ BAZĖ. Use this context to fix garbled audio (e.g., 'padangų'). But if the text is clearly about something else, translate it literally.
-		3. Translate strictly from {source_lang.upper()} to {target_lang.upper()}. 
-		4. PRESERVE GRAMMATICAL PERSON: If the input is impersonal or passive, keep it that way in the translation. NEVER translate third-person or impersonal statements into first-person ("I"). For example, "не записал текст" should be translated referring to the system or third party, NOT as "I did not record".
-		5. Output ONLY the final translated text. No explanations. No markdown formatting, no quotes, no code blocks. Even if the input is a single short word like 'Yes' or 'No', translate it directly without any additional text.
-		6. ANTI-APOLOGY RULE: NEVER apologize. If the input is complete gibberish, output an empty string."""
+        CRITICAL INSTRUCTIONS:
+        1. FIX STT ERRORS FIRST: The input text comes from speech-to-text and contains severe phonetic errors.
+        2. CONTEXT: You work at RATŲ BAZĖ. Use this context to fix garbled audio (e.g., 'padangų').
+        3. Translate strictly from {source_lang.upper()} to {target_lang.upper()}. 
+        4. PRESERVE GRAMMATICAL PERSON: Never translate third-person statements into first-person.
+        5. Output ONLY the final translated text. No explanations. No markdown formatting.
+        6. ANTI-APOLOGY RULE: NEVER apologize. If the input is complete gibberish, output an empty string."""
 
 	messages = [
 		{"role": "system", "content": web_system_prompt},
@@ -129,26 +131,21 @@ async def web_translate_and_fix(raw_text, source_lang, target_lang):
 	]
 	translated = await _call_llm(messages, temperature=0.2)
 
-	# ЖЕСТКАЯ ОЧИСТКА: Убиваем артефакты, кавычки и блоки кода
 	translated = translated.replace("```", "").replace("`", "").replace('"', '').strip()
 
-	# Если нейросеть всё равно вернула пустоту, отдаем исходное слово, чтобы не было тишины
 	if not translated:
 		translated = raw_text
 
-	# Логируем результат
 	print(f"✅ [WEB OUT] Перевод: {translated}")
 	return translated
 
+
 async def generate_speech(text, target_lang):
-	"""Генерирует MP3 поток через Edge-TTS (мягкий фикс против проглатывания начала)."""
+	"""Генерирует MP3 поток через Edge-TTS."""
 	if not text or text == "[LLM Error]":
 		return None, False
 
 	selected_voice = VOICE_MAP.get(target_lang, "ru-RU-DmitryNeural")
-
-	# === МЯГКИЙ ХАК ДЛЯ ПАУЗЫ ===
-	# Используем троеточие вместо \n\n, чтобы польский голос не глотал первое слово
 	text = f" , , , {text}"
 
 	audio_stream = io.BytesIO()
@@ -168,62 +165,62 @@ async def generate_speech(text, target_lang):
 
 	return None, False
 
+
 async def detect_language_audio(audio_bytes, file_name, content_type):
-    """Детектор языка: Deepgram (Литовский режим/Транслит) + GPT-4o-mini."""
-    try:
-        url = "https://api.deepgram.com/v1/listen?model=nova-3&smart_format=true&language=lt"
-        headers = {
-            "Authorization": f"Token {DEEPGRAM_API_KEY}",
-            "Content-Type": content_type or "audio/wav"
-        }
+	"""Детектор языка: Deepgram (Мультиязычный) + GPT-4o-mini с фонетическим анализом."""
+	try:
+		url = "[https://api.deepgram.com/v1/listen?model=nova-3&smart_format=true&detect_language=true](https://api.deepgram.com/v1/listen?model=nova-3&smart_format=true&detect_language=true)"
+		headers = {
+			"Authorization": f"Token {DEEPGRAM_API_KEY}",
+			"Content-Type": content_type or "audio/wav"
+		}
 
-        async with aiohttp.ClientSession() as session:
-            async with session.post(url, headers=headers, data=audio_bytes) as response:
-                res_json = await response.json()
-                if "results" in res_json and res_json["results"]["channels"]:
-                    raw_text = res_json["results"]["channels"][0]["alternatives"][0]["transcript"].strip()
-                else:
-                    raw_text = ""
+		async with aiohttp.ClientSession() as session:
+			async with session.post(url, headers=headers, data=audio_bytes) as response:
+				res_json = await response.json()
+				if "results" in res_json and res_json["results"]["channels"]:
+					raw_text = res_json["results"]["channels"][0]["alternatives"][0]["transcript"].strip()
+				else:
+					raw_text = ""
 
-        print(f"🕵️ [DETECTOR] Deepgram услышал текст: '{raw_text}'")
+		print(f"🕵️ [DETECTOR] Deepgram услышал текст: '{raw_text}'")
 
-        if not raw_text:
-            return "RU", "[Тишина / Шум]"
+		if not raw_text:
+			return "RU", "[Тишина / Шум]"
 
-        classifier_prompt = f"""You are a language detection router for an auto service in Lithuania.
-Analyze the following transcription: "{raw_text}"
+		classifier_prompt = f"""You are a language detection router for a tire service in Lithuania.
+Analyze the transcription: "{raw_text}"
 Instructions:
-- The text might be Lithuanian OR Russian written in Latin letters (e.g., 'zdrastvuite').
-- If it sounds like Lithuanian phonetics or has clear Lithuanian context, return 'LT'.
-- If it is Russian (even if transliterated), return 'RU'.
+- Deepgram often mishears Lithuanian and writes it in Russian Cyrillic (e.g., 'Лаба диена', 'Свейки', 'Падангу'). If the text sounds like a Lithuanian phrase written in Cyrillic, return 'LT'.
+- The text might also be Russian written in Latin letters (e.g., 'zdrastvuite'). If it sounds like Russian, return 'RU'.
+- If it is correct Lithuanian, return 'LT'.
+- If it is correct Russian, return 'RU'.
 - Output ONLY TWO LETTERS: LT or RU. Do not explain anything."""
 
-        messages = [{"role": "user", "content": classifier_prompt}]
-        lang_decision = await _call_llm(messages, temperature=0.0)
+		messages = [{"role": "user", "content": classifier_prompt}]
+		lang_decision = await _call_llm(messages, temperature=0.0)
 
-        if "LT" in lang_decision.upper():
-            print(f"✅ [DETECTOR] LLM постановила: LT (Анализ текста: {raw_text})")
-            return "LT", raw_text
-        else:
-            print(f"✅ [DETECTOR] LLM постановила: RU (Анализ текста: {raw_text})")
-            return "RU", raw_text
+		if "LT" in lang_decision.upper():
+			print(f"✅ [DETECTOR] LLM постановила: LT (Анализ текста: {raw_text})")
+			return "LT", raw_text
+		else:
+			print(f"✅ [DETECTOR] LLM постановила: RU (Анализ текста: {raw_text})")
+			return "RU", raw_text
 
-    except Exception as e:
-        print(f"❌ [DETECTOR] Ошибка: {e}")
-        return "RU", ""
+	except Exception as e:
+		print(f"❌ [DETECTOR] Ошибка: {e}")
+		return "RU", ""
+
 
 # === WEB SOCKETS: DEEPGRAM LIVE ===
 async def connect_deepgram_live(source_lang):
 	"""
 	Открывает постоянный WebSocket-канал с Deepgram.
 	"""
-	# 👇 Изолируем процесс от возможных кривых системных IPv6-прокси на сервере
 	os.environ["no_proxy"] = "*"
 
-	# Формируем URL (убедись, что тут нет лишних скобок!)
-	url = f"wss://api.deepgram.com/v1/listen?model=nova-2&smart_format=true&language={source_lang}&interim_results=true&endpointing=2500"
+	url = f"wss://[api.deepgram.com/v1/listen?model=nova-2&smart_format=true&language=](https://api.deepgram.com/v1/listen?model=nova-2&smart_format=true&language=){source_lang}&interim_results=true&endpointing=2500"
 
-	# 👇 Включаем "рентген", чтобы увидеть, что реально отправляется
 	print(f"🛠 [DEBUG] URL для Deepgram: {url}")
 
 	headers = {
@@ -231,9 +228,4 @@ async def connect_deepgram_live(source_lang):
 	}
 
 	try:
-		ws = await websockets.connect(url, additional_headers=headers)
-		print(f"🔌 [STT] Соединение с Deepgram Live ({source_lang.upper()}) установлено!")
-		return ws
-	except Exception as e:
-		print(f"❌ [STT] Ошибка подключения к Deepgram Live: {e}")
-		raise e
+		ws = await websockets.
