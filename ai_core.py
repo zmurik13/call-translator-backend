@@ -167,49 +167,63 @@ async def generate_speech(text, target_lang):
 
 
 async def detect_language_audio(audio_bytes, file_name, content_type):
-	"""Детектор языка: Deepgram (Мультиязычный) + GPT-4o-mini с фонетическим анализом."""
-	try:
-		url = "https://api.deepgram.com/v1/listen?model=nova-3&smart_format=true&detect_language=true"
-		headers = {
-			"Authorization": f"Token {DEEPGRAM_API_KEY}",
-			"Content-Type": content_type or "audio/wav"
-		}
+    """Детектор языка: Deepgram + Фонетический LLM-анализ бессмыслицы."""
+    try:
+        url = "https://api.deepgram.com/v1/listen?model=nova-3&smart_format=true&detect_language=true"
+        headers = {
+            "Authorization": f"Token {DEEPGRAM_API_KEY}",
+            "Content-Type": content_type or "audio/wav"
+        }
 
-		async with aiohttp.ClientSession() as session:
-			async with session.post(url, headers=headers, data=audio_bytes) as response:
-				res_json = await response.json()
-				if "results" in res_json and res_json["results"]["channels"]:
-					raw_text = res_json["results"]["channels"][0]["alternatives"][0]["transcript"].strip()
-				else:
-					raw_text = ""
+        async with aiohttp.ClientSession() as session:
+            async with session.post(url, headers=headers, data=audio_bytes) as response:
+                res_json = await response.json()
+                if "results" in res_json and res_json["results"]["channels"]:
+                    raw_text = res_json["results"]["channels"][0]["alternatives"][0]["transcript"].strip()
+                else:
+                    raw_text = ""
 
-		print(f"🕵️ [DETECTOR] Deepgram услышал текст: '{raw_text}'")
+        print(f"🕵️ [DETECTOR] Deepgram услышал текст: '{raw_text}'")
 
-		if not raw_text:
-			return "RU", "[Тишина / Шум]"
+        if not raw_text:
+            return "RU", "[Тишина / Шум]"
 
-		classifier_prompt = f"""You are a language detection router for a tire service in Lithuania.
+        # 👇 НОВЫЙ ПРОМПТ: Учим ИИ распознавать "С камень надел по дому"
+        classifier_prompt = f"""You are a phonetic language detector for a tire service in Lithuania.
 Analyze the transcription: "{raw_text}"
-Instructions:
-- Deepgram often mishears Lithuanian and writes it in Russian Cyrillic (e.g., 'Лаба диена', 'Свейки', 'Падангу'). If the text sounds like a Lithuanian phrase written in Cyrillic, return 'LT'.
-- The text might also be Russian written in Latin letters (e.g., 'zdrastvuite'). If it sounds like Russian, return 'RU'.
-- If it is correct Lithuanian, return 'LT'.
-- If it is correct Russian, return 'RU'.
-- Output ONLY TWO LETTERS: LT or RU. Do not explain anything."""
 
-		messages = [{"role": "user", "content": classifier_prompt}]
-		lang_decision = await _call_llm(messages, temperature=0.0)
+The speech-to-text AI is hallucinating due to 8kHz phone audio.
+If the client speaks Lithuanian, the AI often outputs absolute nonsense in Russian or Turkish because it tries to match the phonetic sounds.
 
-		if "LT" in lang_decision.upper():
-			print(f"✅ [DETECTOR] LLM постановила: LT (Анализ текста: {raw_text})")
-			return "LT", raw_text
-		else:
-			print(f"✅ [DETECTOR] LLM постановила: RU (Анализ текста: {raw_text})")
-			return "RU", raw_text
+Examples of Lithuanian hallucinated by AI:
+- "С камень надел по дому" -> Phonetically this is "Skambinu dėl padangų" (LT)
+- "Medres etsem, ezberlemeyen yok..." -> Turkish gibberish means the AI failed to understand Lithuanian (LT)
+- "Лаба диена", "Свейки" -> LT
 
-	except Exception as e:
-		print(f"❌ [DETECTOR] Ошибка: {e}")
-		return "RU", ""
+Examples of Russian:
+- "Здравствуйте, мне нужны шины" -> RU
+- "Добрый день", "Zdrastvuite" -> RU
+
+CRITICAL LOGIC:
+1. If the text consists of Russian words but makes ZERO logical sense as a sentence (like "С камень надел по дому"), it is a hallucinated Lithuanian phrase -> output LT.
+2. If the text is in a random language like Turkish or pure gibberish, assume it is hallucinated Lithuanian -> output LT.
+3. ONLY if it is CLEAR, logical Russian (or transliterated Russian), output RU.
+
+Output ONLY TWO LETTERS: LT or RU."""
+
+        messages = [{"role": "user", "content": classifier_prompt}]
+        lang_decision = await _call_llm(messages, temperature=0.0)
+
+        if "LT" in lang_decision.upper():
+            print(f"✅ [DETECTOR] LLM постановила: LT (Анализ текста: {raw_text})")
+            return "LT", raw_text
+        else:
+            print(f"✅ [DETECTOR] LLM постановила: RU (Анализ текста: {raw_text})")
+            return "RU", raw_text
+
+    except Exception as e:
+        print(f"❌ [DETECTOR] Ошибка: {e}")
+        return "RU", ""
 
 
 # === WEB SOCKETS: DEEPGRAM LIVE ===
