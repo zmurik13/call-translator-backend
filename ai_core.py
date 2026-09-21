@@ -169,8 +169,8 @@ async def generate_speech(text, target_lang):
 async def detect_language_audio(audio_bytes, file_name, content_type):
     """Детектор языка: Жестко RU-модель + LLM для поиска литовского транслита."""
     try:
-	    # Оставляем только базовые параметры и русскую модель
-	    url = "https://api.deepgram.com/v1/listen?model=nova-3&smart_format=true&language=ru"
+        # Жестко задаем формат аудио для 8kHz
+        url = "https://api.deepgram.com/v1/listen?model=nova-3&smart_format=true&language=ru&encoding=linear16&sample_rate=8000&channels=1"
         headers = {
             "Authorization": f"Token {DEEPGRAM_API_KEY}",
             "Content-Type": content_type or "audio/wav"
