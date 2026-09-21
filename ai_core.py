@@ -169,14 +169,16 @@ async def generate_speech(text, target_lang):
 async def detect_language_audio(audio_bytes, file_name, content_type):
     """Детектор языка: Жестко RU-модель + LLM для поиска литовского транслита."""
     try:
-        # Убираем detect_language, ставим жестко RU.
-        url = "https://api.deepgram.com/v1/listen?model=nova-3&smart_format=true&language=ru"
+        # Жестко задаем формат аудио для 8kHz
+        url = "https://api.deepgram.com/v1/listen?model=nova-3&smart_format=true&language=ru&encoding=linear16&sample_rate=8000&channels=1"
         headers = {
             "Authorization": f"Token {DEEPGRAM_API_KEY}",
             "Content-Type": content_type or "audio/wav"
         }
 
-        async with aiohttp.ClientSession() as session:
+        # Ограничиваем ожидание ответа 5 секундами
+        timeout = aiohttp.ClientTimeout(total=5.0)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
             async with session.post(url, headers=headers, data=audio_bytes) as response:
                 res_json = await response.json()
                 if "results" in res_json and res_json["results"]["channels"]:
@@ -189,7 +191,6 @@ async def detect_language_audio(audio_bytes, file_name, content_type):
         if not raw_text:
             return "RU", "[Тишина / Шум]"
 
-        # 👇 Умный классификатор, который ищет литовский транслит
         classifier_prompt = f"""You are a language router for a tire service in Lithuania.
 Analyze the transcription: "{raw_text}"
 Instructions:
@@ -208,30 +209,9 @@ Instructions:
             print(f"✅ [DETECTOR] LLM постановила: RU (Анализ текста: {raw_text})")
             return "RU", raw_text
 
+    except asyncio.TimeoutError:
+        print("❌ [DETECTOR] Deepgram Timeout (5s)!")
+        return "RU", ""
     except Exception as e:
         print(f"❌ [DETECTOR] Ошибка: {e}")
         return "RU", ""
-
-
-# === WEB SOCKETS: DEEPGRAM LIVE ===
-async def connect_deepgram_live(source_lang):
-	"""
-	Открывает постоянный WebSocket-канал с Deepgram.
-	"""
-	os.environ["no_proxy"] = "*"
-
-	url = f"wss://api.deepgram.com/v1/listen?model=nova-2&smart_format=true&language={source_lang}&interim_results=true&endpointing=2500"
-
-	print(f"🛠 [DEBUG] URL для Deepgram: {url}")
-
-	headers = {
-		"Authorization": f"Token {DEEPGRAM_API_KEY}"
-	}
-
-	try:
-		ws = await websockets.connect(url, additional_headers=headers)
-		print(f"🔌 [STT] Соединение с Deepgram Live ({source_lang.upper()}) установлено!")
-		return ws
-	except Exception as e:
-		print(f"❌ [STT] Ошибка подключения к Deepgram Live: {e}")
-		raise e
