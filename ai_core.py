@@ -170,10 +170,11 @@ async def detect_language_audio(audio_bytes, file_name, content_type):
     """Детектор языка: Жестко RU-модель + LLM для поиска литовского транслита."""
     try:
         # Жестко задаем формат аудио для 8kHz
-        url = "https://api.deepgram.com/v1/listen?model=nova-3&smart_format=true&language=ru&encoding=linear16&sample_rate=8000&channels=1"
+        # Убираем encoding и sample_rate, так как шлем полноценный WAV
+        url = "https://api.deepgram.com/v1/listen?model=nova-3&smart_format=true&language=ru"
         headers = {
-            "Authorization": f"Token {DEEPGRAM_API_KEY}",
-            "Content-Type": content_type or "audio/wav"
+	        "Authorization": f"Token {DEEPGRAM_API_KEY}",
+	        "Content-Type": "audio/wav"  # Жестко указываем, что это WAV
         }
 
         # Ограничиваем ожидание ответа 5 секундами
