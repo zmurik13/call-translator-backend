@@ -166,53 +166,66 @@ async def generate_speech(text, target_lang):
 	return None, False
 
 
+async def _transcribe_lang(session, audio_bytes, lang):
+	"""Internal helper to transcribe audio with a strictly enforced language."""
+	url = f"https://api.deepgram.com/v1/listen?model=nova-2&smart_format=true&language={lang}"
+	headers = {
+		"Authorization": f"Token {DEEPGRAM_API_KEY}",
+		"Content-Type": "audio/wav"
+	}
+	try:
+		async with session.post(url, headers=headers, data=audio_bytes) as response:
+			res_json = await response.json()
+			if "results" in res_json and res_json["results"]["channels"]:
+				return res_json["results"]["channels"][0]["alternatives"][0]["transcript"].strip()
+	except Exception as e:
+		print(f"⚠️ [STT] Request failed for {lang}: {e}")
+
+	return ""
+
+
 async def detect_language_audio(audio_bytes, file_name, content_type):
-    """Детектор языка: Мультиязычная модель + Умный LLM-классификатор."""
-    try:
-        # Возвращаем detect_language=true и модель nova-2 (она не фильтрует незнакомые языки)
-        url = "https://api.deepgram.com/v1/listen?model=nova-2&smart_format=true&detect_language=true"
-        headers = {
-            "Authorization": f"Token {DEEPGRAM_API_KEY}",
-            "Content-Type": "audio/wav"  # Жестко указываем, что это WAV файл с заголовками
-        }
+	"""Language Detector: Parallel Execution (RU + LT) with LLM Judge."""
+	try:
+		timeout = aiohttp.ClientTimeout(total=5.0)
+		async with aiohttp.ClientSession(timeout=timeout) as session:
+			# Fire both Deepgram requests concurrently
+			ru_task = _transcribe_lang(session, audio_bytes, "ru")
+			lt_task = _transcribe_lang(session, audio_bytes, "lt")
 
-        timeout = aiohttp.ClientTimeout(total=5.0)
-        async with aiohttp.ClientSession(timeout=timeout) as session:
-            async with session.post(url, headers=headers, data=audio_bytes) as response:
-                res_json = await response.json()
-                if "results" in res_json and res_json["results"]["channels"]:
-                    raw_text = res_json["results"]["channels"][0]["alternatives"][0]["transcript"].strip()
-                else:
-                    raw_text = ""
+			ru_text, lt_text = await asyncio.gather(ru_task, lt_task)
 
-        print(f"🕵️ [DETECTOR] Deepgram услышал текст: '{raw_text}'")
+		print(f"🕵️ [DETECTOR] RU model heard: '{ru_text}'")
+		print(f"🕵️ [DETECTOR] LT model heard: '{lt_text}'")
 
-        if not raw_text:
-            return "RU", "[Тишина / Шум]"
+		# If both models return silence, it's actual silence
+		if not ru_text and not lt_text:
+			return "RU", "[Тишина / Шум]"
 
-        # Умный классификатор, который знает про ВСЕ виды галлюцинаций STT
-        classifier_prompt = f"""You are a language router for a tire service in Lithuania.
-Analyze the transcription: "{raw_text}"
-Instructions:
-1. The text might be Lithuanian recognized correctly.
-2. The text might be Lithuanian recognized as Turkish or Gibberish (e.g. "Medres etsem", "Dünyada yaşıyorum"). -> Output LT.
-3. The text might be Lithuanian recognized as Russian phonetics (e.g. "Он услыкорос", "С камень надел", "Лаба диена"). -> Output LT.
-4. If it is clearly normal Russian (e.g. "Добрый вечер", "по поводу колес"), -> Output RU.
-5. Output ONLY TWO LETTERS: LT or RU. Do not explain."""
+		# Smart LLM Judge
+		classifier_prompt = f"""You are a language judge for a tire service in Lithuania.
+We processed an audio snippet using two different speech-to-text models (RU and LT).
+- Russian model heard: "{ru_text}"
+- Lithuanian model heard: "{lt_text}"
 
-        messages = [{"role": "user", "content": classifier_prompt}]
-        lang_decision = await _call_llm(messages, temperature=0.0)
+Determine which language the user actually spoke based on logic.
+1. If the Russian text is a logical phrase (e.g., "Здравствуйте", "По поводу колес") and LT is gibberish/hallucination -> Output RU.
+2. If the Lithuanian text is a logical phrase (e.g., "Laba diena", "Skambinu dėl padangų") and RU is phonetic gibberish (e.g., "Лаба диена", "Он услыкорос") -> Output LT.
+3. Output ONLY TWO LETTERS: LT or RU. Do not explain."""
 
-        if "LT" in lang_decision.upper():
-            print(f"✅ [DETECTOR] LLM постановила: LT (Анализ текста: {raw_text})")
-            return "LT", raw_text
-        else:
-            print(f"✅ [DETECTOR] LLM постановила: RU (Анализ текста: {raw_text})")
-            return "RU", raw_text
+		messages = [{"role": "user", "content": classifier_prompt}]
+		lang_decision = await _call_llm(messages, temperature=0.0)
 
-    except asyncio.TimeoutError:
-        print("❌ [DETECTOR] Deepgram Timeout (5s)!")
-        return "RU", ""
-    except Exception as e:
-        print(f"❌ [DETECTOR] Ошибка: {e}")
-        return "RU", ""
+		if "LT" in lang_decision.upper():
+			print(f"✅ [DETECTOR] LLM Judge decided: LT")
+			return "LT", lt_text
+		else:
+			print(f"✅ [DETECTOR] LLM Judge decided: RU")
+			return "RU", ru_text
+
+	except asyncio.TimeoutError:
+		print("❌ [DETECTOR] Deepgram Timeout (5s)!")
+		return "RU", ""
+	except Exception as e:
+		print(f"❌ [DETECTOR] Error: {e}")
+		return "RU", ""
