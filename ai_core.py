@@ -166,65 +166,46 @@ async def generate_speech(text, target_lang):
 	return None, False
 
 
-async def _transcribe_lang(session, audio_bytes, lang):
-	"""Internal helper to transcribe audio with a strictly enforced language."""
-	# Возвращаем nova-3, она лучше работает с тихим телефонным звуком
-	url = f"https://api.deepgram.com/v1/listen?model=nova-3&smart_format=true&language={lang}"
-	headers = {
-		"Authorization": f"Token {DEEPGRAM_API_KEY}",
-		"Content-Type": "audio/wav"
-	}
-	try:
-		async with session.post(url, headers=headers, data=audio_bytes) as response:
-			res_json = await response.json()
-			if "results" in res_json and res_json["results"]["channels"]:
-				return res_json["results"]["channels"][0]["alternatives"][0]["transcript"].strip()
-	except Exception as e:
-		print(f"⚠️ [STT] Request failed for {lang}: {e}")
-
-	return ""
-
-
 async def detect_language_audio(audio_bytes, file_name, content_type):
-	"""Language Detector: Parallel Execution (RU + LT) with LLM Judge."""
+	"""Detektor jazyka: Radical shift k Whisper modelu ot Deepgram. Bez LLM-kostylej."""
 	try:
+		# Ispolzujem whisper-large. On idealno opredeliajet jazyk iz korotkih fraz.
+		url = "https://api.deepgram.com/v1/listen?model=whisper-large&detect_language=true"
+		headers = {
+			"Authorization": f"Token {DEEPGRAM_API_KEY}",
+			"Content-Type": "audio/wav"
+		}
+
 		timeout = aiohttp.ClientTimeout(total=5.0)
 		async with aiohttp.ClientSession(timeout=timeout) as session:
-			ru_task = _transcribe_lang(session, audio_bytes, "ru")
-			lt_task = _transcribe_lang(session, audio_bytes, "lt")
+			async with session.post(url, headers=headers, data=audio_bytes) as response:
+				res_json = await response.json()
 
-			ru_text, lt_text = await asyncio.gather(ru_task, lt_task)
+				if "results" not in res_json or not res_json["results"]["channels"]:
+					return "RU", "[Tishina / Shum]"
 
-		print(f"🕵️ [DETECTOR] RU model heard: '{ru_text}'")
-		print(f"🕵️ [DETECTOR] LT model heard: '{lt_text}'")
+				channel = res_json["results"]["channels"][0]
+				raw_text = channel["alternatives"][0]["transcript"].strip()
 
-		if not ru_text and not lt_text:
-			return "RU", "[Тишина / Шум]"
+				# Whisper sam otdajet kod opredelennogo jazyka
+				detected_lang = channel.get("detected_language", "ru")
 
-		# 👇 Усиленный промпт судьи
-		classifier_prompt = f"""You are a strict language judge for a tire service in Lithuania.
-		RU model heard: "{ru_text}"
-		LT model heard: "{lt_text}"
+		print(f"🕵️ [DETECTOR] Whisper uslyshal: '{raw_text}' | Jazyk: {detected_lang}")
 
-		CRITICAL RULES:
-		1. "С камень отдел по дому", "Он услыкорос" are KNOWN Russian hallucinations for the Lithuanian phrase "skambinu dėl padangų".
-		2. If the LT model shows a perfectly valid Lithuanian phrase (e.g., "Labas vakaras", "dėl dangų", "padangų") and RU shows grammatical garbage -> Output LT.
-		3. If the RU model shows a logically sound Russian phrase (e.g., "Здравствуйте", "По поводу колес") and LT is gibberish -> Output RU.
-		4. Output ONLY TWO LETTERS: LT or RU."""
+		if not raw_text:
+			return "RU", "[Tishina / Shum]"
 
-		messages = [{"role": "user", "content": classifier_prompt}]
-		lang_decision = await _call_llm(messages, temperature=0.0)
-
-		if "LT" in lang_decision.upper():
-			print(f"✅ [DETECTOR] LLM Judge decided: LT")
-			return "LT", lt_text
+		# Prostaja zheleznaja logika bez LLM
+		if "lt" in detected_lang.lower():
+			print(f"✅ [DETECTOR] Whisper uverenno skazal: LT")
+			return "LT", raw_text
 		else:
-			print(f"✅ [DETECTOR] LLM Judge decided: RU")
-			return "RU", ru_text
+			print(f"✅ [DETECTOR] Whisper uverenno skazal: RU (ili default)")
+			return "RU", raw_text
 
 	except asyncio.TimeoutError:
 		print("❌ [DETECTOR] Deepgram Timeout (5s)!")
 		return "RU", ""
 	except Exception as e:
-		print(f"❌ [DETECTOR] Error: {e}")
+		print(f"❌ [DETECTOR] Oshibka: {e}")
 		return "RU", ""
