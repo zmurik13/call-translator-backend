@@ -167,17 +167,15 @@ async def generate_speech(text, target_lang):
 
 
 async def detect_language_audio(audio_bytes, file_name, content_type):
-    """Детектор языка: Жестко RU-модель + LLM для поиска литовского транслита."""
+    """Детектор языка: Мультиязычная модель + Умный LLM-классификатор."""
     try:
-        # Жестко задаем формат аудио для 8kHz
-        # Убираем encoding и sample_rate, так как шлем полноценный WAV
-        url = "https://api.deepgram.com/v1/listen?model=nova-3&smart_format=true&language=ru"
+        # Возвращаем detect_language=true и модель nova-2 (она не фильтрует незнакомые языки)
+        url = "https://api.deepgram.com/v1/listen?model=nova-2&smart_format=true&detect_language=true"
         headers = {
-	        "Authorization": f"Token {DEEPGRAM_API_KEY}",
-	        "Content-Type": "audio/wav"  # Жестко указываем, что это WAV
+            "Authorization": f"Token {DEEPGRAM_API_KEY}",
+            "Content-Type": "audio/wav"  # Жестко указываем, что это WAV файл с заголовками
         }
 
-        # Ограничиваем ожидание ответа 5 секундами
         timeout = aiohttp.ClientTimeout(total=5.0)
         async with aiohttp.ClientSession(timeout=timeout) as session:
             async with session.post(url, headers=headers, data=audio_bytes) as response:
@@ -192,13 +190,15 @@ async def detect_language_audio(audio_bytes, file_name, content_type):
         if not raw_text:
             return "RU", "[Тишина / Шум]"
 
+        # Умный классификатор, который знает про ВСЕ виды галлюцинаций STT
         classifier_prompt = f"""You are a language router for a tire service in Lithuania.
 Analyze the transcription: "{raw_text}"
 Instructions:
-1. The audio was transcribed using a strictly RUSSIAN speech-to-text model.
-2. If the user spoke Russian, it will look like normal Russian (e.g., "Добрый вечер, по поводу колес", "Здравствуйте"). -> Output RU.
-3. If the user spoke Lithuanian, the Russian model will write it phonetically using Cyrillic letters (e.g., "Лаба диена", "Скамбину дел падангу", "Свейки", "Падангу"). -> Output LT.
-4. Output ONLY TWO LETTERS: LT or RU. Do not explain anything."""
+1. The text might be Lithuanian recognized correctly.
+2. The text might be Lithuanian recognized as Turkish or Gibberish (e.g. "Medres etsem", "Dünyada yaşıyorum"). -> Output LT.
+3. The text might be Lithuanian recognized as Russian phonetics (e.g. "Он услыкорос", "С камень надел", "Лаба диена"). -> Output LT.
+4. If it is clearly normal Russian (e.g. "Добрый вечер", "по поводу колес"), -> Output RU.
+5. Output ONLY TWO LETTERS: LT or RU. Do not explain."""
 
         messages = [{"role": "user", "content": classifier_prompt}]
         lang_decision = await _call_llm(messages, temperature=0.0)
