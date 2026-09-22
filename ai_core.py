@@ -168,7 +168,8 @@ async def generate_speech(text, target_lang):
 
 async def _transcribe_lang(session, audio_bytes, lang):
 	"""Internal helper to transcribe audio with a strictly enforced language."""
-	url = f"https://api.deepgram.com/v1/listen?model=nova-2&smart_format=true&language={lang}"
+	# Возвращаем nova-3, она лучше работает с тихим телефонным звуком
+	url = f"https://api.deepgram.com/v1/listen?model=nova-3&smart_format=true&language={lang}"
 	headers = {
 		"Authorization": f"Token {DEEPGRAM_API_KEY}",
 		"Content-Type": "audio/wav"
@@ -189,7 +190,6 @@ async def detect_language_audio(audio_bytes, file_name, content_type):
 	try:
 		timeout = aiohttp.ClientTimeout(total=5.0)
 		async with aiohttp.ClientSession(timeout=timeout) as session:
-			# Fire both Deepgram requests concurrently
 			ru_task = _transcribe_lang(session, audio_bytes, "ru")
 			lt_task = _transcribe_lang(session, audio_bytes, "lt")
 
@@ -198,20 +198,21 @@ async def detect_language_audio(audio_bytes, file_name, content_type):
 		print(f"🕵️ [DETECTOR] RU model heard: '{ru_text}'")
 		print(f"🕵️ [DETECTOR] LT model heard: '{lt_text}'")
 
-		# If both models return silence, it's actual silence
 		if not ru_text and not lt_text:
 			return "RU", "[Тишина / Шум]"
 
-		# Smart LLM Judge
+		# 👇 Усиленный промпт судьи
 		classifier_prompt = f"""You are a language judge for a tire service in Lithuania.
 We processed an audio snippet using two different speech-to-text models (RU and LT).
 - Russian model heard: "{ru_text}"
 - Lithuanian model heard: "{lt_text}"
 
-Determine which language the user actually spoke based on logic.
-1. If the Russian text is a logical phrase (e.g., "Здравствуйте", "По поводу колес") and LT is gibberish/hallucination -> Output RU.
-2. If the Lithuanian text is a logical phrase (e.g., "Laba diena", "Skambinu dėl padangų") and RU is phonetic gibberish (e.g., "Лаба диена", "Он услыкорос") -> Output LT.
-3. Output ONLY TWO LETTERS: LT or RU. Do not explain."""
+CRITICAL LOGIC:
+1. If the RU text is empty but the LT text is gibberish/hallucination (e.g. "Jos juodais po valdytojas", "Otoisteina nuo pabenu"), the user actually spoke Russian but quietly -> Output RU.
+2. If the LT text is empty but the RU text is hallucination -> Output LT.
+3. If RU is a logical phrase (e.g., "Здравствуйте", "По поводу колес") -> Output RU.
+4. If LT is a logical phrase (e.g., "Laba diena", "Skambinu dėl padangų") -> Output LT.
+5. Output ONLY TWO LETTERS: LT or RU. Do not explain."""
 
 		messages = [{"role": "user", "content": classifier_prompt}]
 		lang_decision = await _call_llm(messages, temperature=0.0)
