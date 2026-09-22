@@ -161,7 +161,7 @@ async def generate_speech(text, target_lang):
 				return audio_stream, True
 		except Exception as e:
 			print(f"⚠️ [TTS Error] попытка {attempt + 1}: {e}")
-			await asyncio.sleep(0.5)
+			await asyncio.sleep(0.1)  # Было 0.5, ставим 0.1 чтобы не тормозить звонок
 
 	return None, False
 
@@ -202,17 +202,15 @@ async def detect_language_audio(audio_bytes, file_name, content_type):
 			return "RU", "[Тишина / Шум]"
 
 		# 👇 Усиленный промпт судьи
-		classifier_prompt = f"""You are a language judge for a tire service in Lithuania.
-We processed an audio snippet using two different speech-to-text models (RU and LT).
-- Russian model heard: "{ru_text}"
-- Lithuanian model heard: "{lt_text}"
+		classifier_prompt = f"""You are a strict language judge for a tire service in Lithuania.
+		RU model heard: "{ru_text}"
+		LT model heard: "{lt_text}"
 
-CRITICAL LOGIC:
-1. If the RU text is empty but the LT text is gibberish/hallucination (e.g. "Jos juodais po valdytojas", "Otoisteina nuo pabenu"), the user actually spoke Russian but quietly -> Output RU.
-2. If the LT text is empty but the RU text is hallucination -> Output LT.
-3. If RU is a logical phrase (e.g., "Здравствуйте", "По поводу колес") -> Output RU.
-4. If LT is a logical phrase (e.g., "Laba diena", "Skambinu dėl padangų") -> Output LT.
-5. Output ONLY TWO LETTERS: LT or RU. Do not explain."""
+		CRITICAL RULES:
+		1. "С камень отдел по дому", "Он услыкорос" are KNOWN Russian hallucinations for the Lithuanian phrase "skambinu dėl padangų".
+		2. If the LT model shows a perfectly valid Lithuanian phrase (e.g., "Labas vakaras", "dėl dangų", "padangų") and RU shows grammatical garbage -> Output LT.
+		3. If the RU model shows a logically sound Russian phrase (e.g., "Здравствуйте", "По поводу колес") and LT is gibberish -> Output RU.
+		4. Output ONLY TWO LETTERS: LT or RU."""
 
 		messages = [{"role": "user", "content": classifier_prompt}]
 		lang_decision = await _call_llm(messages, temperature=0.0)
