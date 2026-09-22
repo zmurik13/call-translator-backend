@@ -167,15 +167,16 @@ async def generate_speech(text, target_lang):
 
 
 async def detect_language_audio(audio_bytes, file_name, content_type):
-	"""Detektor jazyka: Radical shift k Whisper modelu ot Deepgram. Bez LLM-kostylej."""
+	"""Detektor jazyka: Bystryj Nova-2 s vstroennym detektorom. Bez LLM i bez tormozov Whisper'a."""
 	try:
-		# Ispolzujem whisper-large. On idealno opredeliajet jazyk iz korotkih fraz.
-		url = "https://api.deepgram.com/v1/listen?model=whisper-large&detect_language=true"
+		# Ispolzujem nova-2, on bystryj i podderzivajet detect_language
+		url = "https://api.deepgram.com/v1/listen?model=nova-2&smart_format=true&detect_language=true"
 		headers = {
 			"Authorization": f"Token {DEEPGRAM_API_KEY}",
 			"Content-Type": "audio/wav"
 		}
 
+		# Nova-2 obrabatyvajet zapros za doli sekundy, 5s tajmauta hvatit s golovoj
 		timeout = aiohttp.ClientTimeout(total=5.0)
 		async with aiohttp.ClientSession(timeout=timeout) as session:
 			async with session.post(url, headers=headers, data=audio_bytes) as response:
@@ -187,20 +188,20 @@ async def detect_language_audio(audio_bytes, file_name, content_type):
 				channel = res_json["results"]["channels"][0]
 				raw_text = channel["alternatives"][0]["transcript"].strip()
 
-				# Whisper sam otdajet kod opredelennogo jazyka
+				# Nova-2 otdajet kod opredelennogo jazyka
 				detected_lang = channel.get("detected_language", "ru")
 
-		print(f"🕵️ [DETECTOR] Whisper uslyshal: '{raw_text}' | Jazyk: {detected_lang}")
+		print(f"🕵️ [DETECTOR] Nova-2 uslyshal: '{raw_text}' | Jazyk: {detected_lang}")
 
 		if not raw_text:
 			return "RU", "[Tishina / Shum]"
 
-		# Prostaja zheleznaja logika bez LLM
+		# Zheleznaja logika bez LLM
 		if "lt" in detected_lang.lower():
-			print(f"✅ [DETECTOR] Whisper uverenno skazal: LT")
+			print(f"✅ [DETECTOR] Nova-2 uverenno skazal: LT")
 			return "LT", raw_text
 		else:
-			print(f"✅ [DETECTOR] Whisper uverenno skazal: RU (ili default)")
+			print(f"✅ [DETECTOR] Nova-2 uverenno skazal: RU (ili default)")
 			return "RU", raw_text
 
 	except asyncio.TimeoutError:
